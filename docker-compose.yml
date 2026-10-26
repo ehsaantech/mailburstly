@@ -1,0 +1,282 @@
+# ---------------------------------------------------------------------------
+# Mailrung — single-VPS deployment.
+#
+#   docker compose up -d --build
+#
+# Ports exposed to the host:
+#   8080  web (nginx: React SPA + /api + /ws reverse proxy)
+#   3001  api (Hono)
+#   3002  worker (BullMQ)
+#   3003  EmailEngine (hosted OAuth auth form, browser-facing)
+#   5432  postgres   (dev only — remove in production)
+#   6379  redis      (dev only — remove in production)
+#   8090  dispatcher (Go, send hot path)
+# ---------------------------------------------------------------------------
+
+name: mailrung
+
+x-app-env: &app-env
+  NODE_ENV: ${NODE_ENV:-production}
+  DATABASE_URL: ${POSTGRES_URL}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  WORKSPACE_TIMEZONE: ${WORKSPACE_TIMEZONE:-UTC}
+  SESSION_SECRET: ${SESSION_SECRET}
+  PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+  EMAILENGINE_API_URL: ${EMAILENGINE_API_URL:-http://emailengine:3000}
+  EMAILENGINE_PUBLIC_URL: ${EMAILENGINE_PUBLIC_URL:-http://localhost:3003}
+  EMAILENGINE_SECRET: ${EMAILENGINE_SECRET}
+  EMAILENGINE_WEBHOOK_SECRET: ${EMAILENGINE_WEBHOOK_SECRET}
+  WORKER_WEBHOOK_URL: ${WORKER_WEBHOOK_URL:-http://worker:3002/webhooks/emailengine}
+  EMAILENGINE_SERVICE_SECRET: ${EMAILENGINE_SERVICE_SECRET:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+  MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+  # EmailEngine's own OAuth2 app ids (Integrations > OAuth2 Apps). The api
+  # passes one of these to EmailEngine's auth form so "Connect mailbox"
+  # goes straight to the provider instead of the provider picker.
+  GOOGLE_OAUTH_APP_ID: ${GOOGLE_OAUTH_APP_ID:-}
+  MICROSOFT_OAUTH_APP_ID: ${MICROSOFT_OAUTH_APP_ID:-}
+  LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-https://ollama.com}
+  DISPATCHER_URL: ${DISPATCHER_URL:-http://dispatcher:8090}
+  LLM_MODEL: ${LLM_MODEL:-clef:27b}
+  LLM_CLASSIFY_MIN_CONFIDENCE: ${LLM_CLASSIFY_MIN_CONFIDENCE:-0.7}
+  LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-15000}
+  VERIFICATION_PROVIDER: ${VERIFICATION_PROVIDER:-neverbounce}
+  VERIFICATION_API_KEY: ${VERIFICATION_API_KEY:-}
+  VERIFICATION_DAILY_CAP: ${VERIFICATION_DAILY_CAP:-5000}
+  DEFAULT_MIN_GAP_SECONDS: ${DEFAULT_MIN_GAP_SECONDS:-540}
+  DEFAULT_RANDOM_JITTER_SECONDS: ${DEFAULT_RANDOM_JITTER_SECONDS:-300}
+  DEFAULT_MAILBOX_DAILY_CAP: ${DEFAULT_MAILBOX_DAILY_CAP:-30}
+  HARD_MAILBOX_DAILY_CAP: ${HARD_MAILBOX_DAILY_CAP:-50}
+
+services:
+  # Postgres, with two databases: `mailrung` (ours) and `emailengine`
+  # (EmailEngine's own). The init script creates the second on first boot.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mailrung}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-mailrung}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mailrung} -d ${POSTGRES_DB:-mailrung}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # BullMQ's job queue and the realtime pub/sub bridge between worker and api.
+  # BullMQ v6 also ships a Postgres backend, and pub/sub could use LISTEN/NOTIFY,
+  # so Redis is not strictly required — but it is the battle-tested path and
+  # costs one container. Drop it only if you want a single datastore.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Owns all mail-protocol work: OAuth2 flows, token refresh, IMAP, SMTP.
+  emailengine:
+    image: postalsys/emailengine:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      # EmailEngine binds to 127.0.0.1 by default, which makes it unreachable
+      # from the api/worker containers and breaks the IPv4 healthcheck.
+      EENGINE_HOST: 0.0.0.0
+      EPUBLIC_URL: ${EMAILENGINE_PUBLIC_URL:-http://localhost:3003}
+      EHOST_URL: ${EMAILENGINE_PUBLIC_URL:-http://localhost:3003}
+      EENGINE_REDIS: redis://redis:6379
+      DATABASE_TYPE: postgres
+      DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/emailengine
+      SECRET: ${EMAILENGINE_SECRET}
+      WEBHOOK_SECRET: ${EMAILENGINE_WEBHOOK_SECRET}
+    ports:
+      - "3003:3000"
+    volumes:
+      - emailengine:/emailengine
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Mailcore — replacement for EmailEngine (WIP; runs side by side).
+  mailcore:
+    build:
+      context: .
+      dockerfile: apps/mailcore/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
+      MAILCORE_PORT: ${MAILCORE_PORT:-3004}
+      MAILCORE_PUBLIC_URL: ${MAILCORE_PUBLIC_URL:-http://localhost:3004}
+      MAILCORE_API_TOKEN: ${MAILCORE_API_TOKEN:-${EMAILENGINE_API_TOKEN:-}}
+      MAILCORE_WEBHOOK_URL: ${WORKER_WEBHOOK_URL:-http://worker:3002/webhooks/emailengine}
+      MAILCORE_WEBHOOK_SECRET: ${MAILCORE_WEBHOOK_SECRET:-${EMAILENGINE_SERVICE_SECRET:-}}
+      MAILCORE_ENCRYPTION_KEY: ${MAILCORE_ENCRYPTION_KEY:-}
+      MAILCORE_SYNC_INTERVAL: ${MAILCORE_SYNC_INTERVAL:-30}
+      MAILCORE_INITIAL_SYNC_DAYS: ${MAILCORE_INITIAL_SYNC_DAYS:-14}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_TENANT: ${MICROSOFT_AUTHORITY:-common}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+    ports:
+      - "3004:3004"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      emailengine:
+        condition: service_started
+    environment:
+      <<: *app-env
+      API_PORT: ${API_PORT:-3001}
+      EMAILENGINE_API_URL: http://emailengine:3000
+      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
+      DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      emailengine:
+        condition: service_started
+    environment:
+      <<: *app-env
+      EMAILENGINE_API_URL: http://emailengine:3000
+      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
+      DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Go: the send hot path (batching, pacing, rotation, quota).
+  # See architecture.md §6 for why this is a separate binary.
+  dispatcher:
+    build:
+      context: .
+      dockerfile: apps/dispatcher/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      emailengine:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
+      EMAILENGINE_API_URL: http://emailengine:3000
+      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
+      EMAILENGINE_SECRET: ${EMAILENGINE_SECRET}
+      DISPATCHER_PORT: ${DISPATCHER_PORT:-8090}
+      DISPATCHER_POLL_INTERVAL_MS: ${DISPATCHER_POLL_INTERVAL_MS:-2000}
+      DISPATCHER_BATCH_SIZE: ${DISPATCHER_BATCH_SIZE:-500}
+      DISPATCHER_MAX_CONCURRENCY: ${DISPATCHER_MAX_CONCURRENCY:-25}
+      # Floors, not defaults. The campaign's email_gap_minutes and
+      # random_wait_max decide the pacing; these can only make it stricter.
+      DEFAULT_MIN_GAP_SECONDS: ${DEFAULT_MIN_GAP_SECONDS:-0}
+      DEFAULT_RANDOM_JITTER_SECONDS: ${DEFAULT_RANDOM_JITTER_SECONDS:-0}
+      DEFAULT_MAILBOX_DAILY_CAP: ${DEFAULT_MAILBOX_DAILY_CAP:-30}
+      HARD_MAILBOX_DAILY_CAP: ${HARD_MAILBOX_DAILY_CAP:-50}
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8090/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: /api
+        VITE_WS_URL: /ws
+        VITE_USE_MOCKS: ${VITE_USE_MOCKS:-false}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "8080:80"
+
+  # Edge reverse proxy. Owns 80/443; everything else stays inside the
+  # compose network (behind ufw). Proxies by service name — no need to
+  # publish 3001/3004/8080 to the host once this is the entry point.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  pgdata:
+  redisdata:
+  emailengine:
+  caddydata:
+  caddyconfig:

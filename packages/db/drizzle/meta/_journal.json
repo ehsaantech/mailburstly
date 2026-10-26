@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792729997367,
+      "tag": "0000_young_obadiah_stane",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792742621743,
+      "tag": "0001_powerful_franklin_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792786076147,
+      "tag": "0002_nosy_nemesis",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792789230339,
+      "tag": "0003_amusing_galactus",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792827040572,
+      "tag": "0004_wakeful_echo",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792827279164,
+      "tag": "0005_fine_rick_jones",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792827907536,
+      "tag": "0006_gifted_catseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792827939133,
+      "tag": "0007_harsh_masked_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792871643154,
+      "tag": "0008_chief_the_professor",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792919663312,
+      "tag": "0009_fresh_darwin",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "send_jobs" ADD CONSTRAINT "send_jobs_subsequence_step_id_campaign_subsequence_steps_id_fk" FOREIGN KEY ("subsequence_step_id") REFERENCES "public"."campaign_subsequence_steps"("id") ON DELETE cascade ON UPDATE no action;

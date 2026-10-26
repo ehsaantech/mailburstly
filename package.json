@@ -1,0 +1,40 @@
+{
+  "name": "mailrung",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Internal cold-email campaign runner",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter './apps/*' dev",
+    "dev:web": "bun run --filter '@mailrung/web' dev",
+    "dev:api": "bun run --filter '@mailrung/api' dev",
+    "build": "bun run --filter './apps/*' build",
+    "typecheck": "bun run --filter './apps/*' typecheck && bun run --filter './packages/*' typecheck",
+    "db:generate": "cd packages/db && npx drizzle-kit generate",
+    "db:migrate": "bun run --filter '@mailrung/db' migrate",
+    "db:seed": "bun run --filter '@mailrung/db' seed",
+    "db:studio": "cd packages/db && npx drizzle-kit studio",
+    "smoke": "bun run --filter '@mailrung/web' smoke",
+    "test": "bun run test:go && bun run test:ts",
+    "test:go": "cd apps/dispatcher && go test ./... -count=1",
+    "test:ts": "bun test apps/worker/src apps/api/src packages/shared/src",
+    "verify:events": "bun run scripts/verify-events.ts",
+    "verify:api": "bun run scripts/verify-api.ts",
+    "verify:send": "bun run scripts/verify-send.ts",
+    "verify:llm": "bun run scripts/verify-llm.ts",
+    "verify:inbox": "bun run scripts/verify-inbox.ts",
+    "verify:worker": "bun run scripts/verify-worker.ts",
+    "verify:m5": "bun run scripts/verify-m5.ts",
+    "verify:editor": "bun run scripts/verify-editor.ts",
+    "verify:lists": "bun run scripts/verify-lists.ts",
+    "setup:microsoft": "bun run scripts/setup-microsoft-oauth.ts",
+    "verify": "bun run test && bun run verify:events && bun run verify:api && bun run verify:send"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,47 @@
+# Caddy entry config for mailrung.openehsaan.com.
+#
+# DNS today: mailrung.openehsaan.com has no public A record. Until
+# `mailrung.openehsaan.com A 192.3.193.250` exists, only the :80 block is
+# active. Once DNS is set, uncomment the domain block below and reload:
+#
+#   docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+#
+# Caddy will then obtain/renew a Let's Encrypt cert automatically.
+
+{
+	# email cert-issues@openehsaan.com
+}
+
+:80 {
+	respond /health "ok" 200
+	respond 200 {
+		body "mailrung — Caddy up. Waiting for DNS: add A record mailrung.openehsaan.com -> 192.3.193.250, then uncomment the domain block in docker/Caddyfile."
+	}
+}
+
+mailrung.openehsaan.com {
+	# liveness of the proxy itself (backends can be down; this means Caddy is up)
+	handle /health {
+		respond "ok" 200
+	}
+	# Hono api
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+	# websocket for the web UI
+	handle /ws* {
+		reverse_proxy web:80
+	}
+	# mailcore tracking pixels + link redirects (public, fast path)
+	handle /t/* {
+		reverse_proxy mailcore:3004
+	}
+	# Mailcore browser OAuth (start/callback) + tracking + unsubscribe
+	handle /oauth/* {
+		reverse_proxy mailcore:3004
+	}
+	# React SPA (nginx inside apps/web)
+	handle {
+		reverse_proxy web:80
+	}
+}

@@ -1,0 +1,34 @@
+node_modules/
+dist/
+build/
+.output/
+coverage/
+*.tsbuildinfo
+
+.env
+.env.local
+.env.*.local
+
+# Go
+apps/dispatcher/bin/
+apps/dispatcher/vendor/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.obsidian/
+.commandcode/
+
+# Binaries
+apps/mailcore/mailcore
+*.tar.gz
+
+# Logs
+logs/
+*.log
+bun-debug.log*
+
+# Local scratch
+tmp/
