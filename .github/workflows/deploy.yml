@@ -39,8 +39,10 @@ jobs:
             git reset --hard "$SHA"
             docker compose up -d --build
             docker compose ps --format 'table {{.Name}}\t{{.Status}}'
-            # bind-mounted Caddyfile changes don't recreate the container
-            docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+            # Bind-mounted FILE mounts pin the inode: after git reset --hard
+            # the container may still see the old Caddyfile (reload would
+            # report "config is unchanged"). Restarting re-resolves the path.
+            docker compose restart caddy
           REMOTE
 
       - name: Verify public health
