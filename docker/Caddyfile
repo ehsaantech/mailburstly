@@ -1,12 +1,6 @@
-# Caddy entry config for mailrung.openehsaan.com.
+# Caddy entry config for mailburstly.openehsaan.com.
 #
-# DNS today: mailrung.openehsaan.com has no public A record. Until
-# `mailrung.openehsaan.com A 192.3.193.250` exists, only the :80 block is
-# active. Once DNS is set, uncomment the domain block below and reload:
-#
-#   docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
-#
-# Caddy will then obtain/renew a Let's Encrypt cert automatically.
+# Requires `mailburstly.openehsaan.com A 192.3.193.250` in DNS for auto-HTTPS.
 
 {
 	# email cert-issues@openehsaan.com
@@ -19,7 +13,7 @@
 	}
 }
 
-mailrung.openehsaan.com {
+mailburstly.openehsaan.com {
 	# liveness of the proxy itself (backends can be down; this means Caddy is up)
 	handle /health {
 		respond "ok" 200

@@ -39,10 +39,12 @@ jobs:
             git reset --hard "$SHA"
             docker compose up -d --build
             docker compose ps --format 'table {{.Name}}\t{{.Status}}'
+            # bind-mounted Caddyfile changes don't recreate the container
+            docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
           REMOTE
 
       - name: Verify public health
         run: |
           sleep 10
-          curl -fsS -m 15 --retry 3 --retry-delay 5 https://mailrung.openehsaan.com/health
+          curl -fsS -m 15 --retry 3 --retry-delay 5 https://mailburstly.openehsaan.com/health
           echo " — edge healthy at $(git rev-parse --short HEAD)"
