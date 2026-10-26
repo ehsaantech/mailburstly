@@ -1,0 +1,48 @@
+name: Deploy
+
+# Deploy to the single VPS on every push to main (and on demand).
+# The server pulls this exact commit through its read-only deploy key,
+# then rebuilds and restarts the compose stack in place. The .env with
+# secrets lives only on the server; nothing sensitive passes through CI.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to VPS
+        env:
+          SSH_KEY: ${{ secrets.ACTIONS_SSH_KEY }}
+          HOST: 192.3.193.250
+          SHA: ${{ github.sha }}
+        run: |
+          mkdir -p ~/.ssh
+          install -m 600 /dev/null ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/id_ed25519 root@"$HOST" "SHA=$SHA" 'bash -s' <<'REMOTE'
+            set -euo pipefail
+            cd /opt/instantly.replica
+            git fetch origin main
+            git reset --hard "$SHA"
+            docker compose up -d --build
+            docker compose ps --format 'table {{.Name}}\t{{.Status}}'
+          REMOTE
+
+      - name: Verify public health
+        run: |
+          sleep 10
+          curl -fsS -m 15 --retry 3 --retry-delay 5 https://mailrung.openehsaan.com/health
+          echo " — edge healthy at $(git rev-parse --short HEAD)"
