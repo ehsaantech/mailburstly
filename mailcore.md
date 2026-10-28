@@ -636,8 +636,8 @@ mailcore:
 
 - Remove the `emailengine` service and its volume; drop the `emailengine`
   database from `docker/postgres-init.sql` after the cutover.
-- `apps/web/nginx.conf`: add `location /t/ { proxy_pass http://mailcore:3004; }`
-  and `location /u/`, `location /oauth/`. The api keeps `/api/`.
+- `docker/Caddyfile`: add `handle /t/ { reverse_proxy mailcore:3004 }`
+  and `handle /u/`, `handle /oauth/`. The api keeps `/api/`.
 - `PUBLIC_URL` stays the web app; `MAILCORE_PUBLIC_URL` is what goes into
   tracking pixels, links and the OAuth redirect. In dev they can be the same
   host with different ports; in prod both should be HTTPS on the same host.

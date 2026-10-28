@@ -290,7 +290,7 @@ export function MailboxesPage() {
         open={connectOpen}
         onClose={() => setConnectOpen(false)}
         title="Connect a mailbox"
-        description="Mailrung delegates OAuth to EmailEngine, which handles the consent flow and token refresh."
+        description="Mail Burstly delegates OAuth to EmailEngine, which handles the consent flow and token refresh."
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setConnectOpen(false)}>

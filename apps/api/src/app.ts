@@ -12,7 +12,7 @@ import type { DbHandle } from "@/db";
 import type { ApiErrorBody } from "@mailrung/shared";
 import { allowedOrigins } from "@/env";
 
-/** Route prefix. The web client and nginx both assume it. */
+/** Route prefix. The web client and the edge proxy both assume it. */
 export const API_PREFIX = "/api";
 
 /* -------------------------------------------------------------------------- */

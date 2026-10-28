@@ -37,12 +37,10 @@ jobs:
             cd /opt/instantly.replica
             git fetch origin main
             git reset --hard "$SHA"
-            docker compose up -d --build
+            # The Caddyfile is baked into the edge image, so the rebuild
+            # picks up a changed one — no reload, no restart.
+            docker compose up -d --build --remove-orphans
             docker compose ps --format 'table {{.Name}}\t{{.Status}}'
-            # Bind-mounted FILE mounts pin the inode: after git reset --hard
-            # the container may still see the old Caddyfile (reload would
-            # report "config is unchanged"). Restarting re-resolves the path.
-            docker compose restart caddy
           REMOTE
 
       - name: Verify public health

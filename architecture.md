@@ -18,8 +18,8 @@ Five processes, two datastores, one VPS.
 
 ```
                           ┌──────────────────────┐
-   Browser ──────────────▶│  web (nginx)         │
-                          │  React SPA           │
+   Browser ──────────────▶│  caddy (edge)        │
+                          │  React SPA + proxy   │
                           └──────────┬───────────┘
                                      │ REST + WS
                           ┌──────────▼───────────┐

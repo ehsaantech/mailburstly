@@ -4,13 +4,17 @@
 #   docker compose up -d --build
 #
 # Ports exposed to the host:
-#   8080  web (nginx: React SPA + /api + /ws reverse proxy)
+#   8080  caddy (the edge: React SPA + /api + /ws + mailcore reverse proxy)
 #   3001  api (Hono)
 #   3002  worker (BullMQ)
 #   3003  EmailEngine (hosted OAuth auth form, browser-facing)
 #   5432  postgres   (dev only — remove in production)
 #   6379  redis      (dev only — remove in production)
 #   8090  dispatcher (Go, send hot path)
+#
+# The edge is Caddy in both places: the same image, the same Caddyfile, the
+# same routes. Locally it is plain HTTP on 8080; in production it is
+# HTTPS on 80/443 for the public domain (see SITE_ADDRESS in .env).
 # ---------------------------------------------------------------------------
 
 name: mailrung
@@ -244,33 +248,39 @@ services:
       timeout: 5s
       retries: 10
 
-  web:
+  # The edge. Caddy serves the built React SPA and proxies everything that
+  # belongs to a backend: /api and /ws to the api, /oauth /t /u to mailcore.
+  # One proxy for the whole stack — the same image and the same Caddyfile run
+  # locally and in production.
+  caddy:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
+      dockerfile: docker/Dockerfile
       args:
         VITE_API_URL: /api
         VITE_WS_URL: /ws
         VITE_USE_MOCKS: ${VITE_USE_MOCKS:-false}
+        # Google's site-verification token for the home page. Optional — the
+        # tag is only added when it is set.
+        GOOGLE_SITE_VERIFICATION: ${GOOGLE_SITE_VERIFICATION:-}
     restart: unless-stopped
     depends_on:
       api:
         condition: service_started
+      mailcore:
+        condition: service_started
+    environment:
+      # The site address. ":80" is plain HTTP on any host (local);
+      # "mailburstly.openehsaan.com" turns on automatic HTTPS.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
-      - "8080:80"
-
-  # Edge reverse proxy. Owns 80/443; everything else stays inside the
-  # compose network (behind ufw). Proxies by service name — no need to
-  # publish 3001/3004/8080 to the host once this is the entry point.
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      # Host port -> container. The default is the production one; the local
+      # .env keeps the app on 8080 (this repo does not take standard host
+      # ports).
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
     volumes:
-      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
       - caddyconfig:/config
 

@@ -153,6 +153,42 @@ Login: `admin@example.com` / `change-me-admin-password` (seeded).
 To point the web app at the real API instead of the mock dataset, build it with
 `VITE_USE_MOCKS=false` (the compose default) or run Vite with that env var.
 
+### The edge (Caddy)
+
+Caddy is the only proxy in the stack, in local and in production alike. It
+serves the built React SPA and routes everything that belongs to a backend:
+
+| Path | To |
+|---|---|
+| `/` | the static landing page (`landing.html`), never the SPA |
+| `/assets/*` | the hashed build, immutable, 404 when missing |
+| everything else | `index.html`, so React Router works |
+| `/api/*` | the Hono api |
+| `/ws*` | the Hono api (websocket) |
+| `/oauth/*`, `/t/*`, `/u/*` | mailcore (OAuth, tracking pixel, unsubscribe) |
+| `/health` | the proxy itself — the deploy pipeline checks this |
+
+The rules live in `docker/Caddyfile`, and the SPA is baked into the same
+image (`docker/Dockerfile`). The site address is an env var:
+
+| | local | production |
+|---|---|---|
+| `SITE_ADDRESS` | `:80` (plain HTTP) | `mailburstly.openehsaan.com` (automatic HTTPS) |
+| `HTTP_PORT` | `8080` | `80` (the compose default) |
+| `HTTPS_PORT` | `443` | `443` (the compose default) |
+
+So the local stack is the same image, the same Caddyfile and the same routes
+as the VPS — only the address differs. Locally `.env` carries the values
+above (`.env.example` is the template); on the server it carries:
+
+```bash
+SITE_ADDRESS=mailburstly.openehsaan.com
+```
+
+That one line is what turns on the automatic certificate and the
+http → https redirect. The deploy pipeline then checks
+`https://mailburstly.openehsaan.com/health`.
+
 Other commands:
 
 ```bash
@@ -261,7 +297,7 @@ Outlook app falls back to polling. When the stack gets a public name, the
 fix is:
 
 1. **DNS + TLS.** An A record for the mail host → the VPS, and a reverse
-   proxy (Caddy, or nginx + certbot) terminating 443 and proxying to
+   proxy (Caddy) terminating 443 and proxying to
    `emailengine:3000`. Only EmailEngine needs a public name for this; the
    app itself keeps its own.
 2. **Point EmailEngine at it.** `serviceUrl` (or the `notificationBaseUrl`
@@ -287,6 +323,80 @@ fix is:
    that `outlookSubscription.state` is `valid` and `syncTime` moves.
 
 
+## Google OAuth verification
+
+The Gmail scope needs Google's review before anyone outside the workspace can
+connect a mailbox, and the review is done against the **home page**. So the
+home page is a public, static page: `apps/web/public/landing.html`, served at
+`/` by the edge (`docker/Caddyfile`). It is deliberately not a route in the
+SPA — the app's own pages sit behind a session, and a home page that asks you
+to log in is exactly what the reviewer rejects. Serving it from disk also
+means it needs no JavaScript to explain what the app is.
+
+| What Google checks | Where it is satisfied |
+|---|---|
+| The home page is public | `/` is `landing.html` from disk — no login, no session, no JS |
+| The home page explains the purpose | the hero says what Mail Burstly is, then the features, the steps and the Google-account note |
+| The app name matches the consent screen | "Mail Burstly" in the `<title>`, the `<h1>`, the header, the footer and the privacy policy — the same string as on the OAuth consent screen |
+| A privacy policy | `/privacy.html`, linked from the home page header, hero and footer |
+| Domain ownership | one of the three methods below |
+
+The dashboard moved to `/dashboard` so `/` could stay public. `/login`,
+`/privacy.html` and `/terms.html` are unchanged, and the app still redirects
+to `/login` when it needs a session.
+
+### Verifying the domain
+
+Google wants proof that `mailburstly.openehsaan.com` is yours. Any one of
+these is enough — take the least work:
+
+**DNS TXT (recommended).** Add the TXT record Google gives you on the
+subdomain, wait for it to resolve, then confirm in the console. Nothing in
+this repo changes, and it survives a redeploy.
+
+```bash
+dig TXT mailburstly.openehsaan.com +short
+```
+
+**HTML file.** Google gives you a file named `google<token>.html`. Drop it in
+`apps/web/public/` and deploy — the edge serves anything in that directory
+from the root, so the file lands at
+`https://mailburstly.openehsaan.com/google<token>.html`.
+
+**HTML tag.** Put the token in `.env` and the build puts it on the page:
+
+```bash
+GOOGLE_SITE_VERIFICATION=abc123...
+```
+
+`apps/web/scripts/inject-verification.ts` injects
+`<meta name="google-site-verification" content="…">` into the home page and
+the app shell during the build. Rebuild the edge to publish it:
+
+```bash
+docker compose up -d --build caddy
+```
+
+### The consent screen
+
+Google Cloud console → OAuth consent screen → Branding:
+
+| Field | Value |
+|---|---|
+| App name | `Mail Burstly` |
+| Home page | `https://mailburstly.openehsaan.com` |
+| Privacy policy link | `https://mailburstly.openehsaan.com/privacy.html` |
+| Authorized domains | `openehsaan.com` |
+| Application logo | the Mail Burstly mark (`apps/web/public/mail-burstly-mark.svg`) — the app header uses the full lockup (`apps/web/public/mail-burstly-lockup.svg`) |
+
+The name has to be the same string on the screen and on the home page — that
+is one of the four things the review rejects. After a change, Google asks for
+24 hours before a retry, so verify the page with a hard refresh first.
+
+`bun run --filter '@mailrung/web' smoke` checks the home page too: it must
+answer 200, name the app, explain the purpose, link the privacy policy and
+contain no login form.
+
 ## Structure
 
 ```
@@ -308,16 +418,24 @@ apps/web/
 │   │   └── charts/           AreaChart + Sparkline
 │   ├── pages/                one file per route
 │   └── mocks/data.ts         deterministic seed dataset
-├── public/favicon.svg
-├── Dockerfile                bun build → nginx
-└── nginx.conf                SPA fallback + /api and /ws proxy
+├── public/
+│   ├── favicon.svg           the mark on its charcoal plate
+│   ├── mail-burstly-lockup.svg  the full lockup: mark + "mail burstly"
+│   ├── mail-burstly-mark.svg    the mark alone
+│   ├── fonts/               Poppins woff2, self-hosted (the logo typeface)
+│   └── landing.html          the public home page, served at "/"
+
+docker/
+├── Dockerfile                bun build (web) → Caddy: one edge image
+└── Caddyfile                 the routes: SPA + /api + /ws + mailcore
 ```
 
 ## Screens
 
 | Route | Screen | Notes |
 |---|---|---|
-| `/` | Dashboard | Today's KPIs, 30-day dual-axis trend, attention queue, active campaigns, activity feed, opportunities |
+| `/` | Public home page | Static (`public/landing.html`), no login: what Mail Burstly is, what it does, the privacy policy |
+| `/dashboard` | Dashboard | Today's KPIs, 30-day dual-axis trend, attention queue, active campaigns, activity feed, opportunities |
 | `/campaigns` | Campaigns | Status filters, search, per-campaign reply rate, pipeline, progress |
 | `/campaigns/:id` | Campaign detail | Tabs: Sequence (a real editor — steps, A/Z variants, delays, preview, test send), Leads, Analytics, Settings, plus the diagnosis |
 | `/inbox` | Unibox | Folder rail (primary, unread, reminders, scheduled, sent, others, archived), conversation list, threaded view, inline reply, scheduled replies, reminders, macros, attach-lead |
@@ -332,7 +450,7 @@ apps/web/
 `src/lib/api.ts` already carries a typed `api.get/post/patch/delete` client.
 When the Hono api exists:
 
-1. Set `VITE_API_URL` (defaults to `/api`, proxied by Vite in dev and nginx in prod).
+1. Set `VITE_API_URL` (defaults to `/api`, proxied by Vite in dev and by Caddy in prod).
 2. Set `VITE_USE_MOCKS=false`.
 3. Replace the direct `mocks/data.ts` imports in each page with
    `useQuery({ queryKey, queryFn: () => api.get(...) })`.
@@ -343,6 +461,12 @@ No component needs to change — the pages consume plain typed props today.
 
 - **Semantic tokens only.** Components reference `--fg`, `--surface`, `--accent`,
   never a raw Tailwind palette colour. Theme changes are one file.
+- **The palette is the logo's.** The accent is the lime from the wordmark
+  (`#bdf972`, `oklch(0.914 0.176 129)`), and the neutrals are the artwork's
+  charcoal and off-white rather than a generic blue-grey. The light theme
+  uses a deeper green of the same hue, because lime text on a near-white
+  surface does not clear contrast. Every text/surface pair is checked against
+  WCAG before it ships.
 - **Both themes are first-class.** The smoke test runs every route in dark and
   light, and asserts contrast: body 16:1, muted 5.1:1, subtle 3.1:1 in light.
 - **Dual-axis charts.** Replies are ~3% of sends; sharing one axis flattens them

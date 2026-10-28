@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--google-site-verification-->
+    <title>Mail Burstly — Cold email campaigns from your own mailbox</title>
+    <meta
+      name="description"
+      content="Mail Burstly is an email outreach manager. Connect your own Gmail or Outlook mailbox, send multi-step cold email campaigns from your own address, and get every reply classified in one inbox."
+    />
+    <link rel="canonical" href="https://mailburstly.openehsaan.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Mail Burstly" />
+    <meta property="og:title" content="Mail Burstly — Cold email campaigns from your own mailbox" />
+    <meta
+      property="og:description"
+      content="Mail Burstly is an email outreach manager. Connect your own mailbox, send multi-step campaigns from your own address, and work every reply in one inbox."
+    />
+    <meta property="og:url" content="https://mailburstly.openehsaan.com/" />
+    <meta name="twitter:card" content="summary" />
+    <style>
+      /* Poppins, self-hosted — the typeface the logo wordmark is drawn in.
+         Same files the app loads, so the public page and the signed-in app
+         are set in the same letters. */
+      @font-face {
+        font-family: "Poppins";
+        font-style: normal;
+        font-weight: 500;
+        font-display: swap;
+        src: url("/fonts/poppins-500.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Poppins";
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url("/fonts/poppins-600.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Poppins";
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+        src: url("/fonts/poppins-700.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Poppins";
+        font-style: normal;
+        font-weight: 800;
+        font-display: swap;
+        src: url("/fonts/poppins-800.woff2") format("woff2");
+      }
+
+      :root {
+        color-scheme: dark;
+
+        /* The app's dark tokens, so the public page and the signed-in app
+           are the same product. */
+        --bg: oklch(0.165 0.006 95);
+        --surface: oklch(0.202 0.007 95);
+        --surface-2: oklch(0.24 0.009 95);
+        --border: oklch(0.29 0.01 95);
+        --border-strong: oklch(0.355 0.012 95);
+        --fg: oklch(0.945 0.006 95);
+        --fg-muted: oklch(0.712 0.01 95);
+        --fg-subtle: oklch(0.565 0.01 95);
+
+        /* Brand green, from the logo wordmark ("burstly"). */
+        --brand: oklch(0.9138 0.1763 129.3);
+        --brand-soft: oklch(0.3 0.07 131);
+        /* Text on a brand-green fill. */
+        --brand-fg: oklch(0.17 0.02 130);
+
+        --radius: 14px;
+        --maxw: 1080px;
+        --font-brand: "Poppins", "Inter", ui-sans-serif, system-ui, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.65 "Inter", ui-sans-serif, system-ui, -apple-system,
+          "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .wrap {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 0 1.25rem;
+      }
+
+      /* ------------------------------- header ------------------------------ */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--border);
+        background: rgba(14, 16, 22, 0.82);
+        backdrop-filter: blur(10px);
+      }
+
+      .bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        height: 4rem;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        text-decoration: none;
+      }
+
+      .brand img {
+        height: 1.5rem;
+        width: auto;
+      }
+
+      nav.links {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        font-size: 0.9rem;
+      }
+
+      nav.links a {
+        color: var(--fg-muted);
+        text-decoration: none;
+      }
+
+      nav.links a:hover {
+        color: var(--fg);
+      }
+
+      /* The sign-in button in the header is a link, so it needs the button's
+         own colour back — the rule above is more specific. */
+      nav.links a.btn,
+      nav.links a.btn:hover {
+        color: var(--brand-fg);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.55rem 1rem;
+        border: 1px solid transparent;
+        border-radius: 0.6rem;
+        background: var(--brand);
+        color: var(--brand-fg);
+        font-family: var(--font-brand);
+        font-size: 0.9rem;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .btn:hover {
+        filter: brightness(1.08);
+      }
+
+      .btn.ghost {
+        background: transparent;
+        border-color: var(--border-strong);
+        color: var(--fg);
+      }
+
+      .btn.ghost:hover {
+        background: var(--surface-2);
+      }
+
+      @media (max-width: 640px) {
+        nav.links .hide-sm {
+          display: none;
+        }
+      }
+
+      /* -------------------------------- hero -------------------------------- */
+      .hero {
+        padding: 5rem 0 4rem;
+        background:
+          radial-gradient(
+            60rem 24rem at 12% -25%,
+            rgba(189, 249, 114, 0.14),
+            transparent 60%
+          ),
+          radial-gradient(
+            50rem 20rem at 92% -15%,
+            rgba(189, 249, 114, 0.07),
+            transparent 60%
+          );
+      }
+
+      .eyebrow {
+        display: inline-block;
+        margin-bottom: 1.1rem;
+        padding: 0.3rem 0.7rem;
+        border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--brand);
+        font-family: var(--font-brand);
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      h1 {
+        margin: 0 0 0.75rem;
+        font-family: var(--font-brand);
+        font-size: clamp(2.4rem, 6vw, 3.6rem);
+        line-height: 1.08;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+
+      h1 .accent {
+        color: var(--brand);
+      }
+
+      .tagline {
+        margin: 0 0 1.25rem;
+        max-width: 44rem;
+        font-size: clamp(1.1rem, 2.4vw, 1.35rem);
+        line-height: 1.5;
+        color: var(--fg);
+      }
+
+      .lede {
+        max-width: 44rem;
+        margin: 0 0 2rem;
+        color: var(--fg-muted);
+        font-size: 1.02rem;
+      }
+
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+      }
+
+      .cta .note {
+        color: var(--fg-subtle);
+        font-size: 0.85rem;
+      }
+
+      /* ------------------------------- sections ----------------------------- */
+      section {
+        padding: 3.5rem 0;
+        border-top: 1px solid var(--border);
+      }
+
+      h2 {
+        margin: 0 0 0.5rem;
+        font-family: var(--font-brand);
+        font-size: 1.6rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      .sub {
+        margin: 0 0 2rem;
+        max-width: 44rem;
+        color: var(--fg-muted);
+      }
+
+      .grid {
+        display: grid;
+        gap: 0.9rem;
+        grid-template-columns: repeat(auto-fit, minmax(16.5rem, 1fr));
+      }
+
+      .card {
+        padding: 1.15rem 1.25rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+      }
+
+      .card h3 {
+        margin: 0 0 0.35rem;
+        font-family: var(--font-brand);
+        font-size: 0.98rem;
+        font-weight: 600;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--fg-muted);
+        font-size: 0.9rem;
+      }
+
+      .card .dot {
+        display: inline-block;
+        width: 0.5rem;
+        height: 0.5rem;
+        margin-right: 0.55rem;
+        border-radius: 999px;
+        background: var(--brand);
+        vertical-align: middle;
+      }
+
+      /* --------------------------------- steps ------------------------------ */
+      ol.steps {
+        display: grid;
+        gap: 0.9rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        counter-reset: step;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+      }
+
+      ol.steps li {
+        padding: 1.1rem 1.2rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        counter-increment: step;
+      }
+
+      ol.steps li::before {
+        content: counter(step);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        margin-bottom: 0.6rem;
+        border-radius: 999px;
+        background: var(--brand);
+        color: var(--brand-fg);
+        font-family: var(--font-brand);
+        font-size: 0.8rem;
+        font-weight: 700;
+      }
+
+      ol.steps strong {
+        display: block;
+        margin-bottom: 0.25rem;
+        font-size: 0.95rem;
+      }
+
+      ol.steps span {
+        color: var(--fg-muted);
+        font-size: 0.9rem;
+      }
+
+      /* --------------------------------- access ----------------------------- */
+      .panel {
+        display: grid;
+        gap: 1.5rem;
+        padding: 1.75rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+      }
+
+      .panel h3 {
+        margin: 0 0 0.5rem;
+        font-family: var(--font-brand);
+        font-size: 1.05rem;
+        font-weight: 600;
+      }
+
+      .panel p {
+        margin: 0 0 0.75rem;
+        color: var(--fg-muted);
+        font-size: 0.92rem;
+      }
+
+      ul.ticks {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        color: var(--fg-muted);
+        font-size: 0.9rem;
+      }
+
+      ul.ticks li {
+        position: relative;
+        padding-left: 1.35rem;
+        margin-bottom: 0.4rem;
+      }
+
+      ul.ticks li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.55em;
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 999px;
+        background: var(--brand);
+      }
+
+      /* --------------------------------- footer ----------------------------- */
+      footer {
+        padding: 2.5rem 0 3rem;
+        border-top: 1px solid var(--border);
+        color: var(--fg-subtle);
+        font-size: 0.88rem;
+      }
+
+      .foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      footer a {
+        color: var(--fg-muted);
+        text-decoration: none;
+      }
+
+      footer a:hover {
+        color: var(--fg);
+        text-decoration: underline;
+      }
+
+      footer .links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap bar">
+        <a class="brand" href="/">
+          <img src="/mail-burstly-lockup.svg" alt="Mail Burstly" />
+        </a>
+        <nav class="links">
+          <a class="hide-sm" href="/privacy.html">Privacy</a>
+          <a class="hide-sm" href="/terms.html">Terms</a>
+          <a class="btn" href="/login">Sign in</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <div class="hero">
+        <div class="wrap">
+          <span class="eyebrow">Email outreach manager</span>
+          <h1>
+            Mail Burstly — <span class="accent">cold email campaigns from your
+            own mailbox.</span>
+          </h1>
+          <p class="tagline">
+            Mail Burstly is an email outreach manager for teams that run
+            outbound campaigns.
+          </p>
+          <p class="lede">
+            You connect the Gmail or Outlook mailbox you already own, write a
+            multi-step sequence, and Mail Burstly sends it from that address on
+            the schedule you set. Every reply is read, classified and filed in
+            one inbox, while opens, clicks, bounces and unsubscribes roll up
+            into analytics — and a campaign pauses itself the moment
+            deliverability slips.
+          </p>
+          <div class="cta">
+            <a class="btn" href="/login">Sign in to Mail Burstly</a>
+            <a class="btn ghost" href="/privacy.html">Privacy policy</a>
+            <span class="note">No public sign-up — access is granted per workspace.</span>
+          </div>
+        </div>
+      </div>
+
+      <section>
+        <div class="wrap">
+          <h2>What Mail Burstly does</h2>
+          <p class="sub">
+            One place to run, watch and answer a campaign — without a third
+            party sending mail on your behalf.
+          </p>
+          <div class="grid">
+            <div class="card">
+              <h3><span class="dot"></span>Connect your own mailboxes</h3>
+              <p>
+                Link Gmail, Outlook or any IMAP/SMTP mailbox. Per-mailbox
+                health and daily quota are visible, so you send from the
+                inboxes that still deliver.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Import leads, build lists</h3>
+              <p>
+                Upload a CSV or a sheet, map the columns to variables, dedupe
+                on import and keep contacts in named, reusable lists.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Write multi-step sequences</h3>
+              <p>
+                Build a campaign step by step: subject, body, delay in days,
+                A/Z variants, and a preview rendered exactly as the recipient
+                will see it.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Personalise every send</h3>
+              <p>
+                Merge variables, fallback values, spintax and conditionals are
+                resolved at send time, so a lead never receives a raw token.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Send on your own schedule</h3>
+              <p>
+                Send windows with timezones, daily caps, pacing and jitter
+                between mailboxes, plus stop conditions for replies, bounces
+                and out-of-office.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Work every reply in one inbox</h3>
+              <p>
+                Replies from every connected mailbox land in one thread view,
+                attributed to the lead and the campaign, and you answer them
+                without leaving the app.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Classify replies automatically</h3>
+              <p>
+                Interested, not interested, question, out-of-office,
+                unsubscribe — rules decide, with an optional model behind them
+                and a safe fallback when it is unsure.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Analytics that explain themselves</h3>
+              <p>
+                Sent, contacted, replies and conversions per campaign, step
+                and variant, with a filterable activity log and CSV export.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Auto-pause on poor health</h3>
+              <p>
+                A campaign pauses itself when bounce rate, reply rate, open
+                rate, unsubscribe rate or mailbox health crosses a threshold —
+                and records why.
+              </p>
+            </div>
+            <div class="card">
+              <h3><span class="dot"></span>Webhooks and a public API</h3>
+              <p>
+                Push events to your own systems and read the same data from a
+                key-authenticated REST API.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <h2>How it works</h2>
+          <p class="sub">
+            The loop is the same for every campaign, and it is deliberately
+            boring: write it, watch it, fix what the data tells you.
+          </p>
+          <ol class="steps">
+            <li>
+              <strong>Connect a mailbox</strong>
+              <span>Authorise the inbox you want to send from.</span>
+            </li>
+            <li>
+              <strong>Import your leads</strong>
+              <span>Upload a list and map the fields you want to personalise.</span>
+            </li>
+            <li>
+              <strong>Build the sequence</strong>
+              <span>Write the steps, set delays, preview and send yourself a test.</span>
+            </li>
+            <li>
+              <strong>Launch it</strong>
+              <span>Pick send windows and limits, then let the scheduler run it.</span>
+            </li>
+            <li>
+              <strong>Work the replies</strong>
+              <span>Classified replies wait in the inbox; analytics show what to improve.</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <div class="panel">
+            <div>
+              <h3>Why Mail Burstly asks for Google account access</h3>
+              <p>
+                When you connect a mailbox, Mail Burstly uses the Gmail API
+                with <strong>modify</strong> permission. That is the narrowest
+                scope that lets it do the job:
+              </p>
+              <ul class="ticks">
+                <li>Send the campaign messages from the address you connected.</li>
+                <li>Read the replies to those messages so they can be classified and filed.</li>
+                <li>Label or mark those threads read, so your inbox matches what the tool did.</li>
+              </ul>
+              <p style="margin-top: 0.9rem">
+                It also requests your OpenID, email and profile to identify
+                the account. Mail Burstly does not read, index or sell your
+                personal mail, and it never sends anything outside a campaign
+                you configured. The
+                <a href="/privacy.html" style="color: var(--brand)">privacy policy</a>
+                has the full detail, including how to disconnect a mailbox and
+                revoke access.
+              </p>
+            </div>
+            <div>
+              <h3>Who uses Mail Burstly</h3>
+              <p>
+                Mail Burstly is an internal tool for outbound operators and
+                the teams they run campaigns for. It is operated by Ehsaan
+                Tech.
+              </p>
+              <ul class="ticks">
+                <li>There is no public sign-up — an administrator grants access per workspace.</li>
+                <li>Every message is sent from a mailbox you control, and you remain the sender of record.</li>
+                <li>Unsubscribes are honoured automatically, and bounces are suppressed globally.</li>
+                <li>Questions, access requests and privacy requests: <a href="mailto:support@openehsaan.com" style="color: var(--brand)">support@openehsaan.com</a>.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap foot">
+        <div>
+          <strong style="color: var(--fg)">Mail Burstly</strong> — email
+          outreach, from your own mailbox. Operated by Ehsaan Tech.
+        </div>
+        <div class="links">
+          <a href="/privacy.html">Privacy Policy</a>
+          <a href="/terms.html">Terms of Service</a>
+          <a href="mailto:support@openehsaan.com">support@openehsaan.com</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

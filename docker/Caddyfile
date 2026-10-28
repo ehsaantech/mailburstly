@@ -1,41 +1,84 @@
-# Caddy entry config for mailburstly.openehsaan.com.
+# ---------------------------------------------------------------------------
+# Mail Burstly — the edge.
 #
-# Requires `mailburstly.openehsaan.com A 192.3.193.250` in DNS for auto-HTTPS.
-
+# One proxy for the local stack and for production. The site address comes
+# from the environment:
+#
+#   SITE_ADDRESS unset          -> :80, plain HTTP, any host  (local)
+#   SITE_ADDRESS=mailburstly…   -> automatic HTTPS, real certificate
+#
+# The React SPA is baked into this image, so the edge does two things:
+# serve the files, and route the paths that belong to a backend.
+#
+# Caddy resolves an upstream name per request, so a recreated api container
+# is picked up without restarting the proxy.
+# ---------------------------------------------------------------------------
 {
 	# email cert-issues@openehsaan.com
 }
 
-:80 {
-	respond /health "ok" 200
-	respond 200 {
-		body "mailrung — Caddy up. Waiting for DNS: add A record mailrung.openehsaan.com -> 192.3.193.250, then uncomment the domain block in docker/Caddyfile."
-	}
-}
+{$SITE_ADDRESS::80} {
+	encode gzip zstd
 
-mailburstly.openehsaan.com {
-	# liveness of the proxy itself (backends can be down; this means Caddy is up)
+	# Liveness of the proxy itself: the backends can be down and this still
+	# answers ok. The deploy pipeline checks this over the public address.
 	handle /health {
 		respond "ok" 200
 	}
-	# Hono api
+
+	# REST api -> Hono
 	handle /api/* {
 		reverse_proxy api:3001
 	}
-	# websocket for the web UI
+
+	# WebSocket fan-out -> Hono
 	handle /ws* {
-		reverse_proxy web:80
+		reverse_proxy api:3001
 	}
-	# mailcore tracking pixels + link redirects (public, fast path)
-	handle /t/* {
-		reverse_proxy mailcore:3004
-	}
-	# Mailcore browser OAuth (start/callback) + tracking + unsubscribe
+
+	# Mailcore: OAuth start/callback, tracking pixel, click redirect and
+	# unsubscribe. These have to be reachable from the public internet — a
+	# tracking pixel is loaded by the recipient's mail client — so they are
+	# proxied instead of falling back to the SPA.
 	handle /oauth/* {
 		reverse_proxy mailcore:3004
 	}
-	# React SPA (nginx inside apps/web)
+	handle /t/* {
+		reverse_proxy mailcore:3004
+	}
+	handle /u/* {
+		reverse_proxy mailcore:3004
+	}
+
+	# Hashed build assets: immutable, and a missing one is a 404, never the
+	# app shell (a stale bundle would break the app in a confusing way).
+	handle /assets/* {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} =404
+		file_server
+	}
+
+	# The React SPA.
 	handle {
-		reverse_proxy web:80
+		root * /srv
+
+		# "/" is the static landing page, never the SPA: the app's own routes
+		# sit behind a session, and a home page that logs you out is not a
+		# home page. Serving it from disk also means it needs no JavaScript
+		# to explain what the app is, which is what the Google OAuth review
+		# looks for.
+		@landing path /
+		rewrite @landing /landing.html
+
+		# Everything left is the app shell, and it has to be revalidated — a
+		# deploy would otherwise leave the browser on a stale build.
+		@shell not path /assets/*
+		header @shell Cache-Control "no-cache"
+
+		# SPA fallback: every unknown path serves index.html so React Router
+		# works.
+		try_files {path} /index.html
+		file_server
 	}
 }

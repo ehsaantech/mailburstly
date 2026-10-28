@@ -6,15 +6,19 @@ import { Card, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Field } from "@/components/ui/Input";
 import { useAuth } from "@/lib/auth";
-import { LogoMark } from "@/components/layout/Sidebar";
+import { Brand } from "@/components/layout/Brand";
 
 export function LoginPage() {
   const { user, login } = useAuth();
   const location = useLocation();
-  const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/";
+  const from =
+    (location.state as { from?: { pathname: string } } | null)?.from?.pathname ??
+    "/dashboard";
 
-  const [email, setEmail] = useState("admin@example.com");
-  const [password, setPassword] = useState("change-me-admin-password");
+  // No defaults: this page is linked from the public home page, so it must
+  // not hand out the seed credentials to whoever lands on it.
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,17 +43,12 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent text-accent-fg">
-            <LogoMark className="h-7 w-7" />
-          </span>
-          <div className="text-center">
-            <h1 className="text-xl font-semibold tracking-tight text-fg">
-              Mailrung
-            </h1>
-            <p className="mt-1 text-sm text-fg-muted">
-              Sign in to your workspace
-            </p>
-          </div>
+          {/* A plain anchor, not <Link>: "/" is a static page served by the
+              edge, and a client-side navigation would stay inside the SPA. */}
+          <a href="/" className="rounded-xl">
+            <Brand size="h-6" />
+          </a>
+          <p className="text-sm text-fg-muted">Sign in to your workspace</p>
         </div>
 
         <Card>
@@ -107,7 +106,7 @@ export function LoginPage() {
         </Card>
 
         <p className="mt-6 text-center text-[11px] text-fg-subtle">
-          Internal tool · No sign-up · Contact your admin for access
+          Mail Burstly · No sign-up · Contact your admin for access
         </p>
       </div>
     </div>

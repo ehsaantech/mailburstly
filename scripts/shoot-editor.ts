@@ -76,7 +76,7 @@ async function main() {
   });
 
   for (const [route, name] of [
-    ["/", "dashboard"],
+    ["/dashboard", "dashboard"],
     [`/campaigns/${campaignId}`, "sequence-editor"],
   ] as const) {
     await page.goto(BASE + route, { waitUntil: "networkidle" });

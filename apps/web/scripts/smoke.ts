@@ -14,7 +14,7 @@ async function resolveCampaignId(context: BrowserContext): Promise<string> {
 }
 
 const routes: Array<{ path: string; name: string; fullPage: boolean }> = [
-  { path: "/", name: "dashboard", fullPage: true },
+  { path: "/dashboard", name: "dashboard", fullPage: true },
   { path: "/campaigns", name: "campaigns", fullPage: true },
   { path: "/campaigns/__ID__", name: "campaign-detail", fullPage: true },
   { path: "/inbox", name: "inbox", fullPage: false },
@@ -123,7 +123,7 @@ await page.addInitScript(() => {
     /* ignore */
   }
 });
-await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}/dashboard`, { waitUntil: "networkidle" });
 
 const contrast = await page.evaluate(() => {
   // Colours resolve to oklch() here, so convert to sRGB via a 1x1 canvas
@@ -192,6 +192,24 @@ if (contrast.subtleOnSurface < 3) {
 
 await check.close();
 await browser.close();
+
+// The public home page. It is a static page, not a route, so it is checked
+// as a document: Google's OAuth review needs a home page that says what the
+// app is and that asks for no login. A regression here is invisible in the
+// route loop above, so it gets its own assertions.
+const home = await fetch(BASE + "/");
+const homeHtml = await home.text();
+const homeChecks: Array<[string, boolean]> = [
+  ["status 200", home.status === 200],
+  ["names the app", homeHtml.includes("Mail Burstly")],
+  ["explains the purpose", /outreach manager|cold email/i.test(homeHtml)],
+  ["links the privacy policy", homeHtml.includes("/privacy.html")],
+  ["no login form", !/type="password"/i.test(homeHtml)],
+];
+for (const [label, ok] of homeChecks) {
+  if (!ok) failures++;
+  console.log(`${ok ? "PASS" : "FAIL"} [home ] ${label}`);
+}
 
 console.log(
   failures === 0

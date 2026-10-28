@@ -593,7 +593,7 @@ Toggles per campaign:
 
 ```
                      ┌──────────────────────────┐
-  Browser  ────────▶ │  web (nginx)             │
+  Browser  ────────▶ │  caddy (edge)            │
                      │  React SPA (Vite, TS)    │
                      │  static + /api proxy     │
                      └────────────┬─────────────┘
@@ -622,7 +622,7 @@ Toggles per campaign:
 
 ### 4.1 Service responsibilities
 
-**`web` — React + TypeScript (Vite).** SPA. Screens: Dashboard, Campaigns, Campaign detail (Sequence / Leads / Settings / Analytics tabs), Mailboxes, Leads, Lists, Unibox, Analytics, Settings. Talks to `api` over REST; subscribes to a WebSocket for live activity and inbox updates. Build output served by nginx with the API proxied at `/api` and the WS at `/ws`.
+**`web` — React + TypeScript (Vite).** SPA. Screens: Dashboard, Campaigns, Campaign detail (Sequence / Leads / Settings / Analytics tabs), Mailboxes, Leads, Lists, Unibox, Analytics, Settings. Talks to `api` over REST; subscribes to a WebSocket for live activity and inbox updates. The build output is served by Caddy, the edge proxy, with the API proxied at `/api` and the WS at `/ws`.
 
 **`api` — Node + TypeScript (Fastify + Drizzle ORM).** Owns auth (session cookie, argon2), all CRUD, campaign configuration, lead management, analytics queries, and the outbound REST API. Never sends email directly and never runs a long job inline.
 
