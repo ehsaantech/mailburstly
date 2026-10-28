@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
+    "inject:verification": "bun run scripts/inject-verification.ts",
     "smoke": "bun run scripts/smoke.ts"
   },
   "dependencies": {

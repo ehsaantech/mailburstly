@@ -3,67 +3,111 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ---------------------------------------------------------------------------
+   Poppins, self-hosted. It is the typeface the logo wordmark is drawn in, so
+   headings and the public page's brand type are set in the same letters as
+   the artwork. The lockup itself is vector artwork, not text. Latin subset
+   only.
+--------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/poppins-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/poppins-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/poppins-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/poppins-800.woff2") format("woff2");
+}
+
+/* ---------------------------------------------------------------------------
    Semantic tokens. Light is the default; .dark overrides every one.
    Everything in the app references these, never a raw Tailwind colour,
    so a theme change is a single-file edit.
 --------------------------------------------------------------------------- */
 :root {
-  --bg: oklch(0.985 0.002 260);
-  --surface: oklch(1 0 0);
-  --surface-muted: oklch(0.972 0.003 260);
+  --bg: oklch(0.985 0.003 95);
+  --surface: oklch(0.999 0.001 95);
+  --surface-muted: oklch(0.968 0.005 95);
   --surface-raised: oklch(1 0 0);
-  --border: oklch(0.912 0.006 260);
-  --border-strong: oklch(0.855 0.008 260);
+  --border: oklch(0.912 0.008 95);
+  --border-strong: oklch(0.852 0.01 95);
 
-  --fg: oklch(0.235 0.012 260);
-  --fg-muted: oklch(0.53 0.012 260);
-  --fg-subtle: oklch(0.65 0.01 260);
+  --fg: oklch(0.235 0.014 95);
+  --fg-muted: oklch(0.528 0.014 95);
+  --fg-subtle: oklch(0.645 0.012 95);
 
-  --accent: oklch(0.535 0.208 274);
+  /* The accent is the logo's lime. On a light surface the lime itself is
+     unreadable, so the light theme uses a deeper green of the same hue. */
+  --accent: oklch(0.48 0.14 131);
   --accent-fg: oklch(0.99 0 0);
-  --accent-soft: oklch(0.955 0.022 274);
-  --accent-border: oklch(0.86 0.05 274);
+  --accent-soft: oklch(0.945 0.045 131);
+  --accent-border: oklch(0.855 0.09 131);
 
-  --success: oklch(0.55 0.14 152);
-  --success-soft: oklch(0.955 0.03 152);
-  --warning: oklch(0.62 0.15 75);
+  /* Brand green, taken from the logo wordmark ("burstly"). */
+  --brand: oklch(0.48 0.14 131);
+  --brand-soft: oklch(0.945 0.045 131);
+
+  --success: oklch(0.5 0.11 170);
+  --success-soft: oklch(0.955 0.03 170);
+  --warning: oklch(0.52 0.15 75);
   --warning-soft: oklch(0.965 0.04 85);
-  --danger: oklch(0.56 0.2 20);
+  --danger: oklch(0.55 0.2 20);
   --danger-soft: oklch(0.96 0.026 20);
-  --info: oklch(0.56 0.13 235);
+  --info: oklch(0.52 0.13 235);
   --info-soft: oklch(0.96 0.025 235);
 
-  --ring: oklch(0.535 0.208 274 / 0.45);
+  --ring: oklch(0.48 0.14 131 / 0.5);
   --shadow: 0 1px 2px 0 oklch(0 0 0 / 0.04), 0 1px 3px 0 oklch(0 0 0 / 0.06);
 }
 
 .dark {
-  --bg: oklch(0.168 0.008 265);
-  --surface: oklch(0.205 0.009 265);
-  --surface-muted: oklch(0.228 0.01 265);
-  --surface-raised: oklch(0.243 0.011 265);
-  --border: oklch(0.293 0.012 265);
-  --border-strong: oklch(0.36 0.014 265);
+  --bg: oklch(0.165 0.006 95);
+  --surface: oklch(0.202 0.007 95);
+  --surface-muted: oklch(0.225 0.008 95);
+  --surface-raised: oklch(0.24 0.009 95);
+  --border: oklch(0.29 0.01 95);
+  --border-strong: oklch(0.355 0.012 95);
 
-  --fg: oklch(0.945 0.004 265);
-  --fg-muted: oklch(0.71 0.012 265);
-  --fg-subtle: oklch(0.56 0.012 265);
+  --fg: oklch(0.945 0.006 95);
+  --fg-muted: oklch(0.712 0.01 95);
+  --fg-subtle: oklch(0.565 0.01 95);
 
-  --accent: oklch(0.66 0.185 274);
-  --accent-fg: oklch(0.17 0.01 265);
-  --accent-soft: oklch(0.31 0.06 274);
-  --accent-border: oklch(0.42 0.1 274);
+  --accent: oklch(0.9138 0.1763 129.3);
+  --accent-fg: oklch(0.17 0.02 130);
+  --accent-soft: oklch(0.3 0.07 131);
+  --accent-border: oklch(0.42 0.11 131);
 
-  --success: oklch(0.73 0.15 152);
-  --success-soft: oklch(0.3 0.05 152);
+  --brand: oklch(0.9138 0.1763 129.3);
+  --brand-soft: oklch(0.3 0.07 131);
+
+  --success: oklch(0.75 0.13 170);
+  --success-soft: oklch(0.3 0.05 170);
   --warning: oklch(0.79 0.15 80);
   --warning-soft: oklch(0.32 0.055 80);
-  --danger: oklch(0.68 0.19 20);
+  --danger: oklch(0.7 0.19 20);
   --danger-soft: oklch(0.31 0.06 20);
   --info: oklch(0.73 0.13 235);
   --info-soft: oklch(0.3 0.05 235);
 
-  --ring: oklch(0.66 0.185 274 / 0.5);
+  --ring: oklch(0.9138 0.1763 129.3 / 0.5);
   --shadow: 0 1px 2px 0 oklch(0 0 0 / 0.3), 0 2px 8px -2px oklch(0 0 0 / 0.35);
 }
 
@@ -84,6 +128,9 @@
   --color-accent-soft: var(--accent-soft);
   --color-accent-border: var(--accent-border);
 
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
@@ -100,6 +147,9 @@
     Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
+
+  /* The logo's own typeface — used only for the brand lockup. */
+  --font-brand: "Poppins", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {

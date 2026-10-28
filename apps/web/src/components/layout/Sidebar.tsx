@@ -9,23 +9,8 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { Brand } from "@/components/layout/Brand";
 import { conversations } from "@/mocks/data";
-
-/** The "rung" mark: staggered bars climbing like steps on a ladder. */
-export function LogoMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className={cn("h-6 w-6", className)}
-      aria-hidden
-    >
-      <rect x="2.5" y="15" width="7" height="3.2" rx="1.6" fill="currentColor" opacity="0.5" />
-      <rect x="8.5" y="10.4" width="7" height="3.2" rx="1.6" fill="currentColor" opacity="0.75" />
-      <rect x="14.5" y="5.8" width="7" height="3.2" rx="1.6" fill="currentColor" />
-    </svg>
-  );
-}
 
 interface NavItem {
   to: string;
@@ -36,7 +21,7 @@ interface NavItem {
 }
 
 const primaryNav: NavItem[] = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/campaigns", label: "Campaigns", icon: Send },
   { to: "/inbox", label: "Inbox", icon: Inbox },
 ];
@@ -73,18 +58,8 @@ export function Sidebar({
       )}
     >
       {/* Brand */}
-      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-4">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-fg">
-          <LogoMark className="h-5 w-5" />
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold leading-tight text-fg">
-            Mailrung
-          </p>
-          <p className="truncate text-[11px] leading-tight text-fg-subtle">
-            Ehsaan Tech
-          </p>
-        </div>
+      <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
+        <Brand size="h-3.5" />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
