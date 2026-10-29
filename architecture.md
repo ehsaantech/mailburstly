@@ -6,7 +6,7 @@ Companion to [PRD.md](./PRD.md). This document covers **how the system is built 
 | ------------------- | ------------------------------------------------------------------------------------------------ |
 | **Status**          | Draft v1                                                                                         |
 | **Date**            | 2026-10-22                                                                                       |
-| **Stack**           | Bun + Hono (api) · Bun (worker) · React (web) · Go (dispatcher) · Postgres · Redis · EmailEngine |
+| **Stack**           | Bun + Hono (api, worker, mailcore) · React (web) · Go (dispatcher) · Postgres · Redis |
 | **Deployment**      | Single VPS, Docker Compose                                                                       |
 | **Package manager** | Bun workspaces (`bun install`, `bun run`)                                                        |
 
@@ -42,8 +42,9 @@ Five processes, two datastores, one VPS.
                 └─────┬───────────┘   │  truth         │
                       │               └──────▲─────────┘
                 ┌─────▼───────────┐          │
-                │  EmailEngine    │──────────┘
+                │  mailcore       │──────────┘
                 │  OAuth/IMAP/SMTP│  webhooks
+                │  Gmail/Graph    │
                 └─────────────────┘
 ```
 
@@ -57,7 +58,7 @@ Five processes, two datastores, one VPS.
 | `api` | Bun + Hono + Drizzle | Auth, CRUD, campaign config, lead management, analytics queries, **manual replies**, macros, auto-pause rules, the CSV export, public REST API, WebSocket fan-out | Schedule sends, run long jobs inline |
 | `worker` | Bun + BullMQ | Scheduling, reply intake, attribution, AI classification, **auto-pause**, **scheduled replies**, subsequences, webhook delivery, stats aggregation | Submit SMTP |
 | `dispatcher` | Go | Batching, pacing, rotation, quota — the send hot path | Business logic, AI, Postgres writes outside `send_jobs` |
-| `emailengine` | EmailEngine (self-hosted) | OAuth2 flows, token refresh, IMAP, SMTP transport, its own outbox | Any business decision |
+| `mailcore` | Bun + Hono | OAuth2 flows, token refresh, IMAP/SMTP transport, Gmail API, Microsoft Graph, tracking, the mail event outbox | Any business decision |
 
 ---
 
@@ -156,7 +157,7 @@ models how often this inbox has talked to the outside world, and a per-lead
 measurement would let two campaigns to different leads send at the same
 instant from the same mailbox.
 
-If the computed slot is in the future, the dispatcher **rewrites `scheduled_at` to that slot and skips it this tick**. It deliberately does *not* submit a whole batch to EmailEngine and let it burst out — that would defeat the entire pacing design, which is the thing protecting sender reputation. The job goes back to `pending` so the next cycle picks it up.
+If the computed slot is in the future, the dispatcher **rewrites `scheduled_at` to that slot and skips it this tick**. It deliberately does *not* submit a whole batch to mailcore and let it burst out — that would defeat the entire pacing design, which is the thing protecting sender reputation. The job goes back to `pending` so the next cycle picks it up.
 
 ### Step 3b — The preview goes through the dispatcher
 
@@ -175,25 +176,28 @@ The body is rendered **at send time**, because merge variables, Spintax and
 Liquid are per-lead transforms that must be resolved exactly once, on the
 message that actually goes out.
 
-The dispatcher then submits to EmailEngine:
+The dispatcher then submits to mailcore:
 
 ```
-POST /v1/account/{emailengine_id}/submit
+POST /v1/account/{emailengine_id}/submit     # emailengine_id holds mailcore's account id
 { "to": [{ "address": … }], "subject": …, "text": …, "html": …,
   "trackOpens": <campaign flag>, "trackClicks": <campaign flag> }
 ```
 
-The account id in the URL path is EmailEngine's account id, not our mailbox
-id — the two differ, and sending to the wrong one fails. `to` is an array of
-address objects, not a string.
+The account id in the URL path is mailcore's account id, not our mailbox id —
+the two differ, and sending to the wrong one fails. `to` is an array of address
+objects, not a string.
 
-EmailEngine inserts the tracking pixel and rewrites the links itself when
-`trackOpens` / `trackClicks` are on, so the dispatcher does not touch the
-HTML. The resulting `trackOpen` / `trackClick` webhooks become activities.
+mailcore inserts the tracking pixel and rewrites the links itself when
+`trackOpens` / `trackClicks` are on, so the dispatcher does not touch the HTML.
+The resulting `trackOpen` / `trackClick` webhooks become activities.
 
-### Step 5 — EmailEngine sends
+### Step 5 — mailcore sends
 
-It owns OAuth2, token refresh, IMAP, and SMTP. Its own short outbox handles SMTP-level retries. This is the reason we self-host it: we never write a line of mail-protocol code.
+It owns OAuth2, token refresh, IMAP, and SMTP. `nodemailer` (SMTP),
+`imapflow` (IMAP) and `mailparser` (MIME) are the same MIT libraries
+EmailEngine uses, so we write no mail-protocol code — we own the decisions
+around it.
 
 ### Step 6 — Confirmation (dispatcher, synchronously)
 
@@ -207,7 +211,7 @@ The submit call returns a Message-ID. The dispatcher, in the same tick:
 6. On hard bounce (a later webhook): marks the lead `invalid`, adds to the global blocklist, writes a `bounces` row, stops the lead in every campaign
 7. On soft bounce: schedules a retry at 5 min / 30 min / 2h; after three failures, marks the lead `risky` (not blocked)
 
-**Quota safety.** `sent_today` only increments on *confirmed* send, and the dispatcher's quota check counts `claimed` jobs as in-flight. So the daily cap is never overshot, even if EmailEngine is slow to confirm.
+**Quota safety.** `sent_today` only increments on *confirmed* send, and the dispatcher's quota check counts `claimed` jobs as in-flight. So the daily cap is never overshot, even if mailcore is slow to confirm.
 
 ---
 
@@ -215,8 +219,8 @@ The submit call returns a Message-ID. The dispatcher, in the same tick:
 
 ### Step 0 — The join key
 
-EmailEngine does not use VERP, so the only reliable link between a message we
-sent and a message that comes back is the **Message-ID**. The dispatcher writes
+Neither mailcore nor EmailEngine uses VERP, so the only reliable link between a
+message we sent and a message that comes back is the **Message-ID**. The dispatcher writes
 `sent_messages` at send time, keyed on that id, carrying the lead, campaign,
 step and variant. Every inbound event is correlated through it.
 
@@ -225,7 +229,7 @@ be attributed to the campaign that caused it.
 
 ### Step 1 — Delivery
 
-EmailEngine watches every connected mailbox and posts to
+mailcore watches every connected mailbox and posts to
 `worker:/webhooks/emailengine`. The events we consume are `messageNew`,
 `messageBounce`, `messageComplaint`, `trackOpen`, `trackClick` and
 `listUnsubscribe`.
@@ -233,12 +237,11 @@ EmailEngine watches every connected mailbox and posts to
 Two headers make the endpoint safe:
 
 - `X-EE-Wh-Signature` — HMAC-SHA256 over the raw body, base64url, keyed on
-  EmailEngine's `serviceSecret`. Verified in constant time. A request without a
-  valid signature is a 401.
-- `X-EE-Wh-Event-Id` — the idempotency key. EmailEngine retries a failed
-  delivery up to ten times, so the same event really does arrive more than
-  once; the id is recorded in `processed_webhook_events` and a repeat is a
-  no-op.
+  mailcore's `MAILCORE_WEBHOOK_SECRET`. Verified in constant time. A request
+  without a valid signature is a 401.
+- `X-EE-Wh-Event-Id` — the idempotency key. mailcore retries a failed delivery
+  with backoff, so the same event really does arrive more than once; the id is
+  recorded in `processed_webhook_events` and a repeat is a no-op.
 
 The handler acknowledges **before** it does the work. A slow handler turns one
 event into ten deliveries.
@@ -324,7 +327,7 @@ through the api:
 
 | Action | Endpoint | What it does |
 |---|---|---|
-| Reply now | `POST /inbox/conversations/:id/reply` | Sends through EmailEngine, records an outbound message and an `email_sent` activity, and — when the campaign says `stop_on_reply` — stops the lead's sequence |
+| Reply now | `POST /inbox/conversations/:id/reply` | Sends through mailcore, records an outbound message and an `email_sent` activity, and — when the campaign says `stop_on_reply` — stops the lead's sequence |
 | Reply later | `POST /inbox/conversations/:id/schedule` | Stores the draft on the conversation; the worker sends it when the time comes |
 | Remind me | `POST /inbox/conversations/:id/remind` | Sets `remind_at`; the conversation shows up in Reminders |
 | Attach a lead | `POST /inbox/conversations/:id/attach-lead` | Links a reply that arrived from an unknown address to a lead, and moves it into Primary |
@@ -334,7 +337,7 @@ stronger signal than any rule, and continuing to email someone who just
 wrote back is how a sending domain gets blocked.
 
 **A reply is threaded, not a new thread.** The submit names the message it
-answers in `reference`, and EmailEngine fills in the `In-Reply-To` and
+answers in `reference`, and mailcore fills in the `In-Reply-To` and
 `References` headers from it, and flags that message as answered. The
 submit payload has no `inReplyTo` field — one in the body fails the whole
 request with 400 "Invalid input".
@@ -496,9 +499,20 @@ BullMQ v6 is the first version with a **pluggable backend and a Bun adapter**:
 
 We use BullMQ rather than a hand-rolled queue because the worker genuinely needs delayed jobs (webhook retry at 5min/30min/2h), exponential backoff, concurrency limits per queue, and a job dashboard. Those are not worth reimplementing.
 
-### Why EmailEngine
+### Why mailcore, and not EmailEngine
 
-OAuth2 consent flows, token refresh, IMAP threading, and provider-specific SMTP quirks are weeks of work and a permanent maintenance burden. Self-hosting takes the whole problem off the table.
+OAuth2 consent flows, token refresh, IMAP threading, and provider-specific SMTP
+quirks are weeks of work and a permanent maintenance burden. Self-hosting takes
+the whole problem off the table — but EmailEngine is proprietary
+(`LICENSE_EMAILENGINE.txt` §6.3/§6.4 forbid removing the license-key check and
+require a paid key even for modified versions; §5.3 bars building a service on
+top of it), and a license costs $1,450/yr.
+
+So we own the ~10% of it we actually call, on the **same MIT libraries
+EmailEngine is built on**: `imapflow` (its IMAP engine), `nodemailer` (SMTP),
+`mailparser` (MIME). The protocol work is theirs and battle-tested; the
+business logic stays ours. The service is 2,100 lines of TypeScript against a
+~1,800-line surface. See [mailcore.md](./mailcore.md).
 
 ### Why `send_jobs` is an outbox
 
@@ -549,7 +563,7 @@ The Go service cannot import TypeScript, so it carries its own minimal structs a
 | `step_variants` | `id`, `step_id`, `subject`, `body_html`, `weight` |
 | `campaigns` | `id`, `workspace_id`, `name`, `email_gap_minutes`, `random_wait_max`, `open_tracking`, `link_tracking`, `text_only`, `insert_unsubscribe_header` |
 | `leads` | `id`, `email`, `first_name`, `last_name`, `company`, `title`, `custom_variables` |
-| `mailboxes` | `id`, `email`, `emailengine_id`, `status`, `daily_cap`, `health_score` |
+| `mailboxes` | `id`, `email`, `emailengine_id`, `status`, `daily_cap`, `health_score` — `emailengine_id` is the column's historical name; it now holds mailcore's account id |
 | `mailbox_daily_stats` | `mailbox_id`, `date`, `sent`, `bounced`, `errors` |
 
 The dispatcher writes to `send_jobs` (`state`, `scheduled_at`, `attempts`,
@@ -592,7 +606,7 @@ Implementation notes:
 
 | Milestone | Builds | Connects to | State |
 |---|---|---|---|
-| **M1** Foundation | Postgres schema, compose stack, api skeleton, web shell, auth, mailboxes CRUD + EmailEngine OAuth connect | EmailEngine live; a real mailbox connected | done |
+| **M1** Foundation | Postgres schema, compose stack, api skeleton, web shell, auth, mailboxes CRUD + OAuth connect | A mail gateway live; a real mailbox connected | done |
 | **M2** Leads | CSV/Sheets import, column mapping, dedupe, variables, lists, lead table, verification | DB only | done |
 | **M3** Engine | Campaign/step/variant model, sequence builder, **Go dispatcher**, send_jobs, bounces, blocklist | M1 + M2 → **first real email sent** | done |
 | **M4** Inbox | Webhook intake, attribution, Unibox, inline reply, statuses, OOO auto-resume, opportunities | M3 → **first reply lands** | done |
@@ -632,7 +646,7 @@ machine without Postgres.
 
 ```bash
 # infra only
-docker compose up -d postgres redis emailengine
+docker compose up -d postgres redis mailcore
 
 # install
 bun install
@@ -643,6 +657,7 @@ bun run db:seed                          # creates the admin user
 
 # services, with hot reload
 bun run dev                              # api + worker + web
+bun run dev:mailcore                    # the mail gateway
 cd apps/dispatcher && go run ./cmd/dispatcher
 ```
 
@@ -660,11 +675,11 @@ docker compose up -d --build
 |---|---|
 | Worker dies mid-schedule | `send_jobs` rows already committed are picked up by the dispatcher. No sends lost. |
 | Dispatcher dies mid-submit | Jobs stuck in `claimed` are reclaimed by a lease timeout (default 10 min) and re-submitted. The `send_jobs.id` idempotency key prevents double-send. |
-| EmailEngine down | Dispatcher submission fails, jobs stay `claimed`, retry with backoff. Campaign surfaces `all_accounts_unhealthy`. |
+| mailcore down | Dispatcher submission fails, jobs stay `claimed`, retry with backoff. Campaign surfaces `all_accounts_unhealthy`. |
 | Postgres down | Workers back off and retry. Redis is disposable. |
 | Redis down | Scheduler and dispatcher degrade to degraded mode; Postgres remains authoritative. |
 | A webhook endpoint is down | Delivery retries 3× with backoff, logged and visible in the UI. Campaign unaffected. |
-| Reply webhook missed | Worker reconciles by polling EmailEngine every 5 minutes as a backstop. |
+| Reply webhook missed | mailcore persists every event before delivering it and retries with backoff, so an event is not lost. |
 
 ---
 
@@ -727,8 +742,8 @@ already disambiguates it; the null check was redundant and harmful.
 
 ## 11. Open decisions
 
-1. **EmailEngine's send API vs. direct SMTP from Go.**
-   Specced: EmailEngine owns transport *and* its outbox. Alternative: Go speaks SMTP directly and EmailEngine only hands over OAuth tokens — faster per send, but couples us to EmailEngine's token storage. Revisit only if submission latency becomes a problem.
+1. **mailcore's send API vs. direct SMTP from Go.**
+   Specced: mailcore owns transport *and* the token vault. Alternative: Go speaks SMTP directly and mailcore only hands over OAuth tokens — faster per send, but splits the token store. Revisit only if submission latency becomes a problem.
 
 2. **Webhook event id.**
    Postgres sequence, not UUID, so the value is monotonic and consumers can detect gaps.

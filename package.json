@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "bun run --filter './apps/*' dev",
     "dev:web": "bun run --filter '@mailrung/web' dev",
+    "dev:mailcore": "bun run --filter '@mailrung/mailcore' dev",
     "dev:api": "bun run --filter '@mailrung/api' dev",
     "build": "bun run --filter './apps/*' build",
     "typecheck": "bun run --filter './apps/*' typecheck && bun run --filter './packages/*' typecheck",
@@ -19,7 +20,7 @@
     "db:studio": "cd packages/db && npx drizzle-kit studio",
     "smoke": "bun run --filter '@mailrung/web' smoke",
     "test": "bun run test:go && bun run test:ts",
-    "test:go": "cd apps/dispatcher && go test ./... -count=1",
+    "test:go": "(cd apps/dispatcher && go test ./... -count=1)",
     "test:ts": "bun test apps/worker/src apps/api/src packages/shared/src",
     "verify:events": "bun run scripts/verify-events.ts",
     "verify:api": "bun run scripts/verify-api.ts",

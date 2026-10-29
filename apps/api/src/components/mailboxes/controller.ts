@@ -9,6 +9,7 @@ import {
   connectMailboxSchema,
   createMailboxSchema,
   mailboxParamsSchema,
+  testMailboxSendSchema,
   updateMailboxSchema,
 } from "./validator";
 
@@ -80,6 +81,13 @@ export function createMailboxRoutes(
     const input = await parseJson(c, callbackMailboxSchema);
     const mailbox = await mailboxes.callback(input);
     return ok(c, { mailbox });
+  });
+
+  routes.post("/:id/test-send", requireAuth, async (c) => {
+    const { id } = parseParams(c, mailboxParamsSchema);
+    const input = await parseJson(c, testMailboxSendSchema);
+    const result = await mailboxes.testSend(id, input);
+    return ok(c, result);
   });
 
   return routes;

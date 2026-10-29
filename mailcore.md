@@ -1,29 +1,33 @@
 # Mailcore — replacing EmailEngine
 
-**Status:** proposal · **Date:** 2026-10-26 · **Deadline:** the EmailEngine trial
-expires **2026-11-06** (11 days).
+**Status:** shipped (cut over) · **Date:** 2026-10-29 · **Deadline:** the
+EmailEngine trial expires **2026-11-06**.
 
-Companion to [architecture.md](./architecture.md). This document is the plan for
-`apps/mailcore`: a small Go service that replaces the self-hosted EmailEngine
-without changing Mailrung's business logic.
+Companion to [architecture.md](./architecture.md). This document is the plan and
+the record for `apps/mailcore`: the service that replaces the self-hosted
+EmailEngine without changing the app's business logic.
 
 ---
 
 ## 0. TL;DR
 
-- Build **`apps/mailcore`**, a Go service that speaks the **subset of
-  EmailEngine's REST + webhook contract Mailrung actually uses**. Cut over by
-  changing `EMAILENGINE_API_URL`; the api, worker and dispatcher keep their code.
-- Talk to **Gmail API** and **Microsoft Graph** directly. No IMAP, no SMTP, no
-  Node runtime. Both providers give us send, read, threading and history.
+- **`apps/mailcore`** is a TypeScript service (Bun + Hono) that speaks the
+  **subset of EmailEngine's REST + webhook contract Mailrung actually uses**.
+  The cutover is `EMAILENGINE_API_URL=http://mailcore:3004`; the api, worker and
+  dispatcher keep their code.
+- The mail protocol work is done by **the same MIT libraries EmailEngine is
+  built on**: `imapflow` (IMAP), `nodemailer` (SMTP), `mailparser` (MIME).
+  Gmail and Microsoft 365 are talked to over their REST APIs. Nothing here
+  re-implements a mail protocol — see §3.
 - The whole surface is **8 REST endpoints and 6 webhook events** (see §1). This
   is not "reimplement EmailEngine"; it is "own the 20% we call".
 - Google OAuth: if the operators are on your Google Workspace domain, publish the
   app **Internal** — no verification, no CASA, no 100-user cap. If they are
   personal `@gmail.com` accounts, either publish **unverified** (works, but a
   warning screen and a 100-user cap) or go through verification + CASA. See §16.
-- Keep EmailEngine running until parity is proven; the cutover is one env var and
-  the rollback is the same env var.
+- EmailEngine stays up as a **legacy fallback** for mailboxes connected before
+  the cutover: a request for an account mailcore does not own is forwarded to
+  it. Remove it once every mailbox has been re-consented.
 
 ---
 
@@ -100,14 +104,14 @@ not in §1.1–§1.3, it does not go in v1.
 
 ---
 
-## 2. Decision: Go, REST-only, API-compatible
+## 2. Decision: EmailEngine's own wheels, API-compatible
 
 | Choice | Options | Decision | Why |
 |---|---|---|---|
-| Runtime | Go / Bun+TS | **Go** | The dispatcher is already Go; single static binary; `enmime` parses real-world MIME; no Bun/IMAP runtime risk; ~25 MB RSS |
-| Transport | IMAP+SMTP / provider APIs | **Provider REST APIs** | Gmail API + Graph give send, read, threading, history and push without reimplementing IMAP quirks. SMTP would force `https://mail.google.com/`, a much harder scope to justify |
+| Mail protocol | Hand-rolled / the same MIT libraries EmailEngine uses | **`imapflow` + `nodemailer` + `mailparser`** | These *are* EmailEngine's IMAP/SMTP/MIME engines, MIT-licensed and battle-tested. The first attempt hand-rolled the protocol on `go-imap/v2` **beta.8** and cost three bugs in a day (a `defer c.Logout().Wait()` that logged out before `SELECT`, a pointer-vs-value type switch, a shadowed uid) |
+| Runtime | Go / Bun+TS | **Bun + TypeScript** | One runtime with the api and the worker; the libraries are JS; the same code runs in the container and in `bun run dev` |
 | Interface | New native API / EmailEngine-compatible | **EmailEngine-compatible** | Zero changes to business logic; A/B against the real EmailEngine; rollback is one env var |
-| Deployment | New service / fold into dispatcher | **New `apps/mailcore`** | Keeps the send hot path small; mail sync and token refresh must not slow the dispatcher |
+| Deployment | New service / fold into the worker | **New `apps/mailcore`** | Token refresh and mail sync must not slow the send hot path |
 
 **The one small change outside mailcore:** the api's `connect` must tell mailcore
 which provider was chosen. Today it passes EmailEngine's opaque app id as
@@ -151,21 +155,20 @@ ignores `type`. Everything else stays.
 
 ```
 apps/mailcore/
-├── go.mod
+├── package.json
+├── tsconfig.json
 ├── Dockerfile
-├── cmd/mailcore/main.go
-└── internal/
-    ├── config/          env parsing
-    ├── httpapi/         /v1 compat routes, /oauth, /t, /u
-    ├── account/         account store, token vault, refresh loop
-    ├── oauth/           google + microsoft authorize/exchange
-    ├── provider/        interface + gmail/ + graph/
-    ├── mime/            build outbound, parse inbound (enmime)
-    ├── sync/            poll loops, cursors, dedupe, event emission
-    ├── deliverability/  DSN + ARF parsing
-    ├── tracking/        pixel, link rewriting, link store
-    ├── webhook/         signed delivery + retry outbox
-    └── store/           pgx queries
+└── src/
+    ├── env.ts           zod-validated environment
+    ├── db.ts            postgres-js pool + the mail_* tables
+    ├── crypto.ts        AES-256-GCM token vault
+    ├── store.ts         accounts, oauth state, cursors, messages, events
+    ├── oauth.ts         google + microsoft authorize/exchange/refresh (PKCE)
+    ├── providers.ts     imapflow (IMAP), nodemailer (SMTP), mailparser (MIME)
+    ├── api-providers.ts Gmail API + Microsoft Graph over REST
+    ├── webhook.ts       HMAC-SHA256 signing, envelope, backoff
+    ├── legacy.ts        forward requests for accounts the old engine still holds
+    └── index.ts         Hono routes, sync loop, delivery loop
 ```
 
 ### 3.2 Provider interface
@@ -261,8 +264,8 @@ and stays under Graph's 4-concurrent-request cap.
 ### 5.3 What to fetch per message
 
 Fetch the **raw MIME** (`format=raw` on Gmail, `/$value` on Graph) and parse with
-`enmime`. Raw is the same shape from both providers and gives us every header
-and both bodies without a second call:
+`mailparser`. Raw is the same shape from both providers and gives us every
+header and both bodies without a second call:
 
 - `From`, `To`, `Cc`, `Subject`, `Date`
 - `Message-ID`, `In-Reply-To`, `References`
@@ -286,7 +289,7 @@ For each new INBOX message, insert into the webhook outbox with:
   "path": "INBOX",
   "specialUse": "\\Inbox",
   "data": {
-    "id": "01J…",                 // our stable id, worker dedupes on this
+    "id": "<account-uuid>:<uid>",  // stable AND globally unique
     "emailId": "<provider id>",
     "threadId": "<provider thread>",
     "date": "…",
@@ -327,7 +330,7 @@ The compat endpoint accepts exactly today's payload:
   "html": "…",
   "trackOpens": true,
   "trackClicks": true,
-  "reference": {"message": "01J…", "action": "reply", "ignoreMissing": true},
+  "reference": {"message": "<our-message-id>", "action": "reply", "ignoreMissing": true},
   "headers": {"In-Reply-To": "<…>", "References": "<…>"}
 }
 ```
@@ -481,6 +484,38 @@ Auth: `Authorization: Bearer <MAILCORE_API_TOKEN>`, the same shared-secret model
 as EmailEngine. The api's `EMAILENGINE_API_TOKEN` becomes `MAILCORE_API_TOKEN`
 (or keep the variable name during cutover).
 
+### 10.1 Accounts still held by the legacy engine
+
+A mailbox connected **before** the cutover keeps the account id the legacy
+engine gave it (usually the address itself, e.g. `aitchkhan@gmail.com`), and
+its tokens live in the legacy engine's vault — not in mailcore's. mailcore
+cannot send for such an account on its own.
+
+So an account mailcore does not own is **forwarded to the legacy engine**:
+`GET`/`DELETE /v1/account/{id}`, `PUT /v1/account/{id}/reconnect` and
+`POST /v1/account/{id}/submit` are passed on verbatim (path, method, body,
+bearer token) and the legacy engine's answer is returned untouched. A `404`
+from the legacy engine means it does not own the account either, and mailcore
+answers with its own `account not found`.
+
+The forwarding is off until `MAILCORE_LEGACY_URL` is set:
+
+| Variable | Meaning |
+|---|---|
+| `MAILCORE_LEGACY_URL` | Base URL of the legacy engine, e.g. `http://emailengine:3000`. Empty = off |
+| `MAILCORE_LEGACY_TOKEN` | Bearer token for the legacy engine. Defaults to `MAILCORE_API_TOKEN` |
+
+This is what keeps the cutover from breaking the send path: the api, the
+worker and the dispatcher all point at mailcore and never learn that some
+mailboxes are still served by the old engine. Once a mailbox is re-consented
+through mailcore, mailcore owns it and the forwarding is no longer used for
+it. When the last legacy mailbox is gone, unset the variable and remove the
+`emailengine` service.
+
+`GET /v1/accounts` lists both: mailcore-owned accounts are marked
+`"source": "mailcore"`, the ones still held by the legacy engine
+`"source": "legacy"`. It is the cutover checklist in one call.
+
 ---
 
 ## 11. Data model
@@ -625,6 +660,8 @@ mailcore:
     MAILCORE_WEBHOOK_URL: ${WORKER_WEBHOOK_URL:-http://worker:3002/webhooks/emailengine}
     MAILCORE_WEBHOOK_SECRET: ${MAILCORE_WEBHOOK_SECRET}
     MAILCORE_ENCRYPTION_KEY: ${MAILCORE_ENCRYPTION_KEY}
+    MAILCORE_LEGACY_URL: ${MAILCORE_LEGACY_URL:-http://emailengine:3000}
+    MAILCORE_LEGACY_TOKEN: ${MAILCORE_LEGACY_TOKEN:-${EMAILENGINE_API_TOKEN:-}}
     GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
     GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
     MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID}
@@ -693,11 +730,17 @@ Run both engines side by side until every row below is green.
 
 1. Stop the dispatcher (or pause campaigns) so no sends are in flight.
 2. Set `EMAILENGINE_API_URL=http://mailcore:3004` in the api, worker and
-   dispatcher; keep the token the same.
+   dispatcher; keep the token the same. Set `MAILCORE_LEGACY_URL` on mailcore
+   so the mailboxes that are still connected in the legacy engine keep
+   sending (§10.1).
 3. Reconnect each mailbox through the UI (re-consent; see risk R1).
 4. Send one campaign email to `haroon@yopmail.com`, reply from yopmail, confirm
    both directions.
-5. Remove the `emailengine` service and volume.
+5. `GET /v1/accounts` on mailcore: every account must say
+   `"source": "mailcore"`. While one still says `"source": "legacy"`, that
+   mailbox is still served by the old engine.
+6. Remove the `emailengine` service and volume, and unset
+   `MAILCORE_LEGACY_URL`.
 
 ### Rollback
 
@@ -848,7 +891,7 @@ gate, not the code.
 
 | # | Risk | Mitigation |
 |---|---|---|
-| R1 | **Re-consent is likely.** EmailEngine's refresh tokens may not be exportable; the trial expiring forces re-auth anyway | Plan the cutover as "reconnect every mailbox"; tell operators it is a 30-second consent each. EmailEngine's `export` may carry tokens — test it before the trial ends |
+| R1 | **Re-consent is likely.** EmailEngine's refresh tokens may not be exportable; the trial expiring forces re-auth anyway | Plan the cutover as "reconnect every mailbox"; tell operators it is a 30-second consent each. EmailEngine's `export` may carry tokens — test it before the trial ends. Until a mailbox is re-consented, mailcore forwards its sends to the legacy engine (§10.1), so nothing breaks in between |
 | R2 | **Gmail API rewrites Message-ID** | Read the sent message's metadata after send and return the real one (§6.3). Verify in the smoke test |
 | R3 | **Graph drops custom headers when sending MIME** | The `Message-ID` is generally preserved; if not, use the draft → read `internetMessageId` → send path. Both are specced |
 | R4 | **Google verification blocks external launch** | Internal/publish-unverified now; start verification only when a customer requires it |
@@ -893,3 +936,46 @@ gate, not the code.
   <https://learn.microsoft.com/en-us/entra/identity-platform/publisher-verification-overview>
 - EmailEngine API surface (for parity checks):
   <https://learn.emailengine.app/docs/api/emailengine-api>
+
+
+---
+
+## 19. What shipped (2026-10-29)
+
+The plan above is live. What changed from the plan, and why:
+
+| Plan | Shipped | Reason |
+|---|---|---|
+| A Go service | **TypeScript on Bun** | The mail protocol is done by `imapflow` / `nodemailer` / `mailparser` — the same MIT libraries EmailEngine uses. Hand-rolling IMAP on `go-imap/v2` beta.8 cost three bugs in a day. One runtime with the api and the worker is simpler to run |
+| Gmail API + Graph only | **+ IMAP/SMTP** | Spaceship (and most bought mailboxes) are plain IMAP/SMTP. `imapflow` + `nodemailer` cover them, and `verifyaccount` now dials SMTP for real |
+| Provider-native message ids | **`<account-uuid>:<uid>`** | IMAP UIDs and Graph ids are unique only *within* one mailbox, and the worker dedupes `provider_message_id` globally. Unprefixed, only the first mailbox's mail was stored |
+| `enmime` for MIME | **`mailparser`** | Same reason: it is the parser EmailEngine uses |
+| Open tracking pixel | **implemented** | `GET /t/o/{id}.gif`, `GET /t/c/{id}`, `GET|POST /u/{token}` |
+
+### Live state
+
+- 5 mailboxes connected: 4 Spaceship IMAP/SMTP (`haroon@`, `haroonkhan@`,
+  `haroon.khan@`, `hkhan@theehsaantech.com`) + `tayyab@ehsaanlabs.com`
+  (Microsoft Graph).
+- Both send paths verified against `haroon@yopmail.com`: Spaceship SMTP and
+  Microsoft Graph.
+- Inbound sync parses real mail and delivers `messageNew` to the worker.
+- The api gained `POST /api/mailboxes/:id/test-send` and a "Test send" modal
+  per mailbox card; the Connect modal now takes IMAP/SMTP credentials and the
+  api verifies both before registering the account.
+- EmailEngine is still running as the legacy fallback (`MAILCORE_LEGACY_URL`).
+  Remove it, its volume and the `emailengine` database once every mailbox has
+  been re-consented through mailcore.
+
+### Third-party dependencies
+
+| Package | License | Used for |
+|---|---|---|
+| `imapflow` | MIT | IMAP — the engine behind EmailEngine |
+| `nodemailer` | MIT | SMTP, and MIME composition |
+| `mailparser` | MIT | Parsing inbound MIME |
+| `hono` | MIT | The HTTP surface (already in the api) |
+| `postgres` | MIT | The database (already in the api) |
+| `zod` | MIT | Env validation (already in the api) |
+
+No runtime beyond Bun and Postgres. No Redis, no Node service, no EmailEngine.

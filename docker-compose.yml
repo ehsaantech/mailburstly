@@ -26,7 +26,7 @@ x-app-env: &app-env
   WORKSPACE_TIMEZONE: ${WORKSPACE_TIMEZONE:-UTC}
   SESSION_SECRET: ${SESSION_SECRET}
   PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
-  EMAILENGINE_API_URL: ${EMAILENGINE_API_URL:-http://emailengine:3000}
+  EMAILENGINE_API_URL: ${EMAILENGINE_API_URL:-http://mailcore:3004}
   EMAILENGINE_PUBLIC_URL: ${EMAILENGINE_PUBLIC_URL:-http://localhost:3003}
   EMAILENGINE_SECRET: ${EMAILENGINE_SECRET}
   EMAILENGINE_WEBHOOK_SECRET: ${EMAILENGINE_WEBHOOK_SECRET}
@@ -127,7 +127,9 @@ services:
       timeout: 5s
       retries: 10
 
-  # Mailcore — replacement for EmailEngine (WIP; runs side by side).
+  # Mailcore — the mail gateway. It replaces EmailEngine: OAuth2, IMAP/SMTP,
+  # the Gmail API and Microsoft Graph, tracking, and the webhook events the
+  # worker consumes.
   mailcore:
     build:
       context: .
@@ -137,21 +139,29 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
       MAILCORE_PORT: ${MAILCORE_PORT:-3004}
-      MAILCORE_PUBLIC_URL: ${MAILCORE_PUBLIC_URL:-http://localhost:3004}
+      MAILCORE_PUBLIC_URL: ${MAILCORE_PUBLIC_URL:-${PUBLIC_URL:-http://localhost:8080}}
       MAILCORE_API_TOKEN: ${MAILCORE_API_TOKEN:-${EMAILENGINE_API_TOKEN:-}}
       MAILCORE_WEBHOOK_URL: ${WORKER_WEBHOOK_URL:-http://worker:3002/webhooks/emailengine}
       MAILCORE_WEBHOOK_SECRET: ${MAILCORE_WEBHOOK_SECRET:-${EMAILENGINE_SERVICE_SECRET:-}}
       MAILCORE_ENCRYPTION_KEY: ${MAILCORE_ENCRYPTION_KEY:-}
       MAILCORE_SYNC_INTERVAL: ${MAILCORE_SYNC_INTERVAL:-30}
       MAILCORE_INITIAL_SYNC_DAYS: ${MAILCORE_INITIAL_SYNC_DAYS:-14}
+      # The engine mailcore replaces. Mailboxes connected before the cutover
+      # are still connected there, with their tokens in its vault: requests
+      # for accounts mailcore does not own are forwarded to it, so those
+      # mailboxes keep sending until they are re-consented through mailcore.
+      # Unset (and remove the emailengine service) once every mailbox has
+      # been re-consented.
+      MAILCORE_LEGACY_URL: ${MAILCORE_LEGACY_URL:-http://emailengine:3000}
+      MAILCORE_LEGACY_TOKEN: ${MAILCORE_LEGACY_TOKEN:-${EMAILENGINE_API_TOKEN:-}}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
       MICROSOFT_TENANT: ${MICROSOFT_AUTHORITY:-common}
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
     ports:
       - "3004:3004"
     healthcheck:
@@ -170,12 +180,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      emailengine:
-        condition: service_started
+      mailcore:
+        condition: service_healthy
     environment:
       <<: *app-env
       API_PORT: ${API_PORT:-3001}
-      EMAILENGINE_API_URL: http://emailengine:3000
+      EMAILENGINE_API_URL: http://mailcore:3004
       EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
       REDIS_URL: redis://redis:6379
@@ -197,11 +207,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      emailengine:
-        condition: service_started
+      mailcore:
+        condition: service_healthy
     environment:
       <<: *app-env
-      EMAILENGINE_API_URL: http://emailengine:3000
+      EMAILENGINE_API_URL: http://mailcore:3004
       EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
       REDIS_URL: redis://redis:6379
@@ -223,11 +233,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      emailengine:
-        condition: service_started
+      mailcore:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
-      EMAILENGINE_API_URL: http://emailengine:3000
+      EMAILENGINE_API_URL: http://mailcore:3004
       EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
       EMAILENGINE_SECRET: ${EMAILENGINE_SECRET}
       DISPATCHER_PORT: ${DISPATCHER_PORT:-8090}

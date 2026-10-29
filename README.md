@@ -5,8 +5,8 @@ operators, warmup deliberately deferred.
 
 - **[PRD.md](./PRD.md)** — what the product does
 - **[architecture.md](./architecture.md)** — how the system is built and wired
-- **[mailcore.md](./mailcore.md)** — plan for replacing EmailEngine with
-  `apps/mailcore` (the trial expires 2026-11-06)
+- **[mailcore.md](./mailcore.md)** — how `apps/mailcore` replaced EmailEngine,
+  and how to run OAuth in production
 
 ## Status
 
@@ -18,8 +18,9 @@ classified, and lands in the inbox and the analytics.
 |---|---|---|
 | `apps/web` | React 19 + Vite + Tailwind v4 | Dashboard, Campaigns, Campaign detail, Leads, Mailboxes, **Inbox** and **Analytics** wired to the real API. Lists and Settings still on mock data. |
 | `apps/api` | Bun + Hono + Drizzle | Auth, mailboxes, campaigns, leads, inbox, analytics, webhooks, api keys, subsequences, public API. |
-| `apps/worker` | Bun + BullMQ | Scheduler tick (send windows, stop conditions, blocklist), EmailEngine webhook intake (replies, bounces, opens, clicks, unsubscribes), daily aggregation, outbound webhook delivery, subsequence runner. |
-| `apps/dispatcher` | Go | Claims `send_jobs` with `FOR UPDATE SKIP LOCKED`, renders the template, applies pacing/quota/jitter, submits to EmailEngine, records the Message-ID. |
+| `apps/worker` | Bun + BullMQ | Scheduler tick (send windows, stop conditions, blocklist), mail event intake (replies, bounces, opens, clicks, unsubscribes), daily aggregation, outbound webhook delivery, subsequence runner. |
+| `apps/dispatcher` | Go | Claims `send_jobs` with `FOR UPDATE SKIP LOCKED`, renders the template, applies pacing/quota/jitter, submits to mailcore, records the Message-ID. |
+| `apps/mailcore` | Bun + Hono | The mail gateway: OAuth2, IMAP/SMTP, Gmail API, Microsoft Graph, tracking, and the mail events the worker consumes. |
 | `packages/db` | Drizzle + postgres-js | Schema, migrations, seed. 27 tables. |
 | `packages/shared` | — | Enums, types, webhook event names. |
 
@@ -106,7 +107,7 @@ bun run verify:llm      # sends a handful of replies to the live model
 
 ```bash
 bun run test              # Go unit tests + Bun unit tests
-bun run verify:events     # the EmailEngine webhook pipeline, against a live stack
+bun run verify:events     # the mail event pipeline, against a live stack
 bun run verify:api        # every api route the new features added
 bun run verify:inbox      # folders, reminders, macros, inline reply, auto-pause, CSV export
 bun run verify:m5         # the funnel, activity log, mailbox metrics, diagnosis
@@ -131,7 +132,7 @@ bun run smoke             # every web route rendered in both themes
 | Package manager | Bun workspaces |
 
 Backend: Bun + Hono api, Bun + BullMQ worker, Go dispatcher, Postgres, Redis,
-self-hosted EmailEngine. See `architecture.md`.
+`apps/mailcore`, our own mail gateway. See `architecture.md`.
 
 ## Quick start
 
@@ -202,200 +203,103 @@ route **in both dark and light themes**, fails on any console error or theme
 mismatch, checks light-mode contrast ratios, and writes screenshots to
 `/tmp/shots/<theme>-<route>.png`.
 
-### EmailEngine configuration
+### Mailcore — the mail gateway
 
-The worker receives EmailEngine's webhooks. Configure them once:
+Mailcore owns everything protocol-shaped: OAuth2 consent, IMAP/SMTP transport,
+the Gmail API and Microsoft Graph, the tracking pixel, and the webhook events
+the worker consumes. It speaks the subset of EmailEngine's REST contract the
+app already calls, so the api, worker and dispatcher are unchanged.
+
+The cutover is one variable:
 
 ```bash
-TOKEN=$(grep EMAILENGINE_API_TOKEN .env | cut -d= -f2)
-SECRET=$(grep EMAILENGINE_SERVICE_SECRET .env | cut -d= -f2)
-
-curl -X POST http://localhost:3003/v1/settings \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d "{
-    \"serviceUrl\": \"http://localhost:3003\",
-    \"webhooks\": \"http://worker:3002/webhooks/emailengine\",
-    \"webhooksEnabled\": true,
-    \"webhookEvents\": [\"messageNew\",\"messageSent\",\"messageBounce\",\"messageComplaint\",\"trackOpen\",\"trackClick\",\"listUnsubscribe\"],
-    \"notifyText\": true,
-    \"notifyHeaders\": [\"in-reply-to\",\"references\",\"from\",\"to\",\"subject\",\"message-id\",\"auto-submitted\",\"precedence\"],
-    \"serviceSecret\": \"$SECRET\"
-  }"
+EMAILENGINE_API_URL=http://mailcore:3004
+EMAILENGINE_API_TOKEN=<MAILCORE_API_TOKEN>
 ```
 
-`webhookEvents` has no default — nothing is delivered until it is named.
-`serviceSecret` is the HMAC key the worker verifies `X-EE-Wh-Signature`
-against, so it must match `EMAILENGINE_SERVICE_SECRET` in `.env`.
+The worker receives mail events over the same path it always did
+(`/webhooks/emailengine`), signed with the same HMAC key — `MAILCORE_WEBHOOK_SECRET`
+must equal `EMAILENGINE_SERVICE_SECRET`, or the worker rejects the event.
+
+Check what mailcore knows:
+
+```bash
+TOKEN=$(grep MAILCORE_API_TOKEN .env | cut -d= -f2)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3004/v1/accounts | jq '.accounts[] | {email, type, state}'
+```
+
+**Test a mailbox end to end** from the web app: Mailboxes → **Test send** on the
+mailbox card → send to `haroon@yopmail.com`. The modal returns the Message-ID
+that was recorded.
 
 ### Microsoft (Outlook / M365) mailboxes
 
-EmailEngine owns the Microsoft conversation too: it runs the consent flow,
-holds the refresh token and talks Graph or IMAP. Our api never speaks
-Microsoft OAuth — it only tells EmailEngine *which* OAuth app to use
-(`MICROSOFT_OAUTH_APP_ID`, an EmailEngine app id, not the Entra client id).
+Mailcore runs the Microsoft consent flow itself and talks **Microsoft Graph**
+(`Mail.ReadWrite`, `Mail.Send`, `User.Read`, plus `offline_access` for the
+refresh token). One app registration in Entra, no second registration step.
 
-Two steps, in this order.
-
-**1. An app registration in Entra.** [Entra admin center](https://entra.microsoft.com)
-→ App registrations → New registration.
+[Entra admin center](https://entra.microsoft.com) → App registrations → New
+registration.
 
 | Setting | Value |
 |---|---|
 | Supported account types | Accounts in any organizational directory and personal Microsoft accounts (matches the `common` authority) |
-| Redirect URI (Web) | `http://localhost:3003/oauth` locally, `https://<host>/oauth` in production |
-| API permissions (delegated) | `Mail.ReadWrite`, `Mail.Send`, `User.Read` (Graph) — plus `offline_access` for the refresh token |
+| Redirect URI (Web) | `http://localhost:8080/oauth/callback` locally, `https://<host>/oauth/callback` in production |
+| API permissions (delegated) | `Mail.ReadWrite`, `Mail.Send`, `User.Read` (Graph) |
 
-Then **Certificates & secrets → New client secret** and copy the *value* (it
-is shown once). Put both values in `.env`:
+Then **Certificates & secrets → New client secret** and copy the *value* (it is
+shown once). Put both values in `.env`:
 
 ```bash
 MICROSOFT_CLIENT_ID=aa666337-…
 MICROSOFT_CLIENT_SECRET=…
 ```
 
-**2. Register the app with EmailEngine.** This is what creates
-`MICROSOFT_OAUTH_APP_ID`:
+and restart mailcore (`docker compose up -d --build mailcore`). Mailboxes →
+Connect mailbox → Microsoft now goes straight to the Microsoft consent screen.
 
-```bash
-bun run setup:microsoft          # add --dry-run to see the request first
-```
+> **Sender display name.** Exchange resolves the name a recipient sees from the
+> mailbox's Azure AD display name, not from ours. Set it in **Microsoft 365
+> Admin Center → Recipients → Mailboxes → <address> → General → Display name**.
+> The name we store on the mailbox is what Gmail and IMAP/SMTP mailboxes show.
 
-The script registers (or updates, if one exists) the Outlook OAuth2 app in
-EmailEngine and writes the app id it returns into `.env` as
-`MICROSOFT_OAUTH_APP_ID`. Then:
+### Google (Gmail) mailboxes
 
-```bash
-docker compose up -d api         # the api reads the app id at boot
-```
+The Google OAuth app is registered against `https://<host>/oauth/callback`, the
+same redirect as Microsoft, with the scopes `openid email profile` and
+`https://www.googleapis.com/auth/gmail.modify`.
 
-Mailboxes → Connect mailbox → Microsoft now goes straight to the Microsoft
-consent screen, because the api passes the app id to EmailEngine's auth form
-as `type`. Without it, EmailEngine shows a provider picker instead.
+Two things to know before shipping it:
 
-**`imap` vs `api`.** `baseScopes` decides how EmailEngine reads the mailbox:
+- **Never ship an app left in "Testing".** Google issues refresh tokens that
+  expire after **7 days**, so every mailbox would die weekly. Publish the app.
+- **Internal vs external.** If the operators are on your Google Workspace
+  domain, set the user type to **Internal**: no verification, no CASA, no
+  100-user cap. Personal `@gmail.com` accounts need an **external** app —
+  published and unverified is enough for a small internal tool (a warning screen
+  and a 100-user cap), but selling it to strangers means full verification plus
+  a **CASA Tier 2** assessment (2–3 weeks, $500–$4,500, every 12 months).
 
-- `imap` (default) — IMAP/SMTP with OAuth2. Works anywhere, including
-  localhost, but it polls. Needs the Exchange Online delegated permissions
-  (`IMAP.AccessAsUser.All`, `SMTP.Send`) on the app registration.
-- `api` — Microsoft Graph. Push notifications instead of polling, but Graph
-  rejects a change-notification URL that is not public HTTPS, so the account
-  connects and then never syncs behind a plain-HTTP host. Use it only when
-  EmailEngine is reachable over HTTPS.
+Full details, including the verification checklist, are in
+[mailcore.md](./mailcore.md) §16.
 
-Check what a connected account is doing:
+### IMAP/SMTP mailboxes (Spaceship and others)
 
-```bash
-TOKEN=$(grep EMAILENGINE_API_TOKEN .env | cut -d= -f2)
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3003/v1/accounts | jq '.accounts[] | {email, type, state, syncTime}'
-```
+Bought mailboxes are plain IMAP + SMTP. Mailboxes → Connect mailbox → **IMAP/SMTP
+(manual)** asks for both server blocks and verifies them before registering the
+account:
 
-`syncTime` moving means the mailbox is actually being read.
+| | IMAP | SMTP |
+|---|---|---|
+| Host | `mail.spacemail.com` | `mail.spacemail.com` |
+| Port | 993 | 465 (SSL) or 587 (STARTTLS) |
+| Security | SSL | SSL / STARTTLS |
+| Username | the full address | the full address |
+| Password | the mailbox password | the mailbox password |
 
-**Planned: EmailEngine on public HTTPS.** Graph push notifications need a
-public HTTPS callback, and Graph refuses an `http` notification URL, so the
-Outlook app falls back to polling. When the stack gets a public name, the
-fix is:
-
-1. **DNS + TLS.** An A record for the mail host → the VPS, and a reverse
-   proxy (Caddy) terminating 443 and proxying to
-   `emailengine:3000`. Only EmailEngine needs a public name for this; the
-   app itself keeps its own.
-2. **Point EmailEngine at it.** `serviceUrl` (or the `notificationBaseUrl`
-   override) becomes `https://<mail-host>`, which makes the Graph
-   notification URL `https://<mail-host>/oauth/msg/notification?account=…`.
-   It lives in the `settings` hash, so it survives restarts:
-
-   ```bash
-   curl -X POST http://localhost:3003/v1/settings \
-     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-     -d "{\"serviceUrl\": \"https://<mail-host>\", \"notificationBaseUrl\": \"https://<mail-host>\"}"
-   ```
-
-3. **The compose env.** `EMAILENGINE_PUBLIC_URL=https://<mail-host>` sets
-   `EPUBLIC_URL` and `EHOST_URL`, which is what the hosted auth form and
-   the consent redirect use. `PUBLIC_URL` (our own app) should be the
-   public https URL of the web app too — it is what the OAuth callback
-   points at.
-4. **The Entra app.** Add `https://<mail-host>/oauth` as a second redirect
-   URI (keep the localhost one for development).
-5. **Reconnect the Outlook mailbox.** The current subscription is in an
-   error state; a fresh consent registers the new https URL. Then check
-   that `outlookSubscription.state` is `valid` and `syncTime` moves.
-
-
-## Google OAuth verification
-
-The Gmail scope needs Google's review before anyone outside the workspace can
-connect a mailbox, and the review is done against the **home page**. So the
-home page is a public, static page: `apps/web/public/landing.html`, served at
-`/` by the edge (`docker/Caddyfile`). It is deliberately not a route in the
-SPA — the app's own pages sit behind a session, and a home page that asks you
-to log in is exactly what the reviewer rejects. Serving it from disk also
-means it needs no JavaScript to explain what the app is.
-
-| What Google checks | Where it is satisfied |
-|---|---|
-| The home page is public | `/` is `landing.html` from disk — no login, no session, no JS |
-| The home page explains the purpose | the hero says what Mail Burstly is, then the features, the steps and the Google-account note |
-| The app name matches the consent screen | "Mail Burstly" in the `<title>`, the `<h1>`, the header, the footer and the privacy policy — the same string as on the OAuth consent screen |
-| A privacy policy | `/privacy.html`, linked from the home page header, hero and footer |
-| Domain ownership | one of the three methods below |
-
-The dashboard moved to `/dashboard` so `/` could stay public. `/login`,
-`/privacy.html` and `/terms.html` are unchanged, and the app still redirects
-to `/login` when it needs a session.
-
-### Verifying the domain
-
-Google wants proof that `mailburstly.openehsaan.com` is yours. Any one of
-these is enough — take the least work:
-
-**DNS TXT (recommended).** Add the TXT record Google gives you on the
-subdomain, wait for it to resolve, then confirm in the console. Nothing in
-this repo changes, and it survives a redeploy.
-
-```bash
-dig TXT mailburstly.openehsaan.com +short
-```
-
-**HTML file.** Google gives you a file named `google<token>.html`. Drop it in
-`apps/web/public/` and deploy — the edge serves anything in that directory
-from the root, so the file lands at
-`https://mailburstly.openehsaan.com/google<token>.html`.
-
-**HTML tag.** Put the token in `.env` and the build puts it on the page:
-
-```bash
-GOOGLE_SITE_VERIFICATION=abc123...
-```
-
-`apps/web/scripts/inject-verification.ts` injects
-`<meta name="google-site-verification" content="…">` into the home page and
-the app shell during the build. Rebuild the edge to publish it:
-
-```bash
-docker compose up -d --build caddy
-```
-
-### The consent screen
-
-Google Cloud console → OAuth consent screen → Branding:
-
-| Field | Value |
-|---|---|
-| App name | `Mail Burstly` |
-| Home page | `https://mailburstly.openehsaan.com` |
-| Privacy policy link | `https://mailburstly.openehsaan.com/privacy.html` |
-| Authorized domains | `openehsaan.com` |
-| Application logo | the Mail Burstly mark (`apps/web/public/mail-burstly-mark.svg`) — the app header uses the full lockup (`apps/web/public/mail-burstly-lockup.svg`) |
-
-The name has to be the same string on the screen and on the home page — that
-is one of the four things the review rejects. After a change, Google asks for
-24 hours before a retry, so verify the page with a hard refresh first.
-
-`bun run --filter '@mailrung/web' smoke` checks the home page too: it must
-answer 200, name the app, explain the purpose, link the privacy policy and
-contain no login form.
+The api calls `/v1/verifyaccount`, which dials both servers for real, and
+refuses the account if either fails. From then on mailcore polls IMAP every
+30 s and delivers new mail to the worker as `messageNew`.
 
 ## Structure
 
