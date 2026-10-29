@@ -67,6 +67,19 @@ export function MailboxesPage() {
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
 
+  const [imapCfg, setImapCfg] = useState({ host: "", port: 993, secure: true, user: "", pass: "" });
+  const [smtpCfg, setSmtpCfg] = useState({ host: "", port: 587, secure: true, user: "", pass: "" });
+
+
+  const [testMailbox, setTestMailbox] = useState<MailboxSummary | null>(null);
+  const [testTo, setTestTo] = useState("");
+  const [testSubject, setTestSubject] = useState("Test from Mail Burstly");
+  const [testText, setTestText] = useState("Hello from Mail Burstly");
+  const [testSending, setTestSending] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+
   const mailboxesQuery = useQuery({
     queryKey: ["mailboxes"],
     queryFn: () =>
@@ -89,6 +102,19 @@ export function MailboxesPage() {
     setConnecting(true);
     setConnectError(null);
     try {
+      if (provider === "imap_smtp") {
+        await api.post("/mailboxes", {
+          email: email.trim() || imapCfg.user.trim(),
+          displayName: displayName.trim() || undefined,
+          provider: "imap_smtp",
+          imap: imapCfg,
+          smtp: smtpCfg,
+        });
+        await mailboxesQuery.refetch();
+        setConnectOpen(false);
+        setConnecting(false);
+        return;
+      }
       const result = await api.post<{ data: { url: string; accountId: string } }>(
         "/mailboxes/connect",
         {
@@ -104,6 +130,28 @@ export function MailboxesPage() {
         error instanceof Error ? error.message : "Failed to start connection",
       );
       setConnecting(false);
+    }
+  };
+
+  const handleTestSend = async () => {
+    if (!testMailbox) return;
+    if (USE_MOCKS) {
+      setTestError("Test send needs the real API (VITE_USE_MOCKS=false).");
+      return;
+    }
+    setTestSending(true);
+    setTestError(null);
+    setTestResult(null);
+    try {
+      const res = await api.post<{ data: { messageId?: string; queueId?: string } }>(
+        `/mailboxes/${testMailbox.id}/test-send`,
+        { to: testTo, subject: testSubject, text: testText },
+      );
+      setTestResult(res.data?.messageId ?? "sent");
+    } catch (e) {
+      setTestError(e instanceof Error ? e.message : "Send failed");
+    } finally {
+      setTestSending(false);
     }
   };
 
@@ -275,9 +323,25 @@ export function MailboxesPage() {
                   <span className="text-[11px] text-fg-subtle">
                     Checked {formatRelative(m.lastCheckedAt)}
                   </span>
-                  <Button variant="ghost" size="sm">
-                    Settings
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setTestMailbox(m);
+                        setTestTo("");
+                        setTestSubject("Test from Mail Burstly");
+                        setTestText("Hello from Mail Burstly");
+                        setTestError(null);
+                        setTestResult(null);
+                      }}
+                    >
+                      Test send
+                    </Button>
+                    <Button variant="ghost" size="sm">
+                      Settings
+                    </Button>
+                  </div>
                 </div>
               </CardBody>
             </Card>
@@ -285,6 +349,42 @@ export function MailboxesPage() {
         </div>
         )}
       </div>
+
+      <Modal
+        open={!!testMailbox}
+        onClose={() => setTestMailbox(null)}
+        title={testMailbox ? `Send test email from ${testMailbox.email}` : "Send test email"}
+        description="Sends a real message through mailcore so you can verify OAuth, SMTP and tracking in real time. Use haroon@yopmail.com as the recipient for safe testing."
+      >
+        <div className="space-y-4">
+          <Field label="To" htmlFor="test-to">
+            <Input id="test-to" type="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="haroon@yopmail.com" />
+          </Field>
+          <Field label="Subject" htmlFor="test-subject">
+            <Input id="test-subject" value={testSubject} onChange={(e) => setTestSubject(e.target.value)} />
+          </Field>
+          <Field label="Body" htmlFor="test-text">
+            <Input id="test-text" value={testText} onChange={(e) => setTestText(e.target.value)} />
+          </Field>
+          {testError ? (
+            <div className="flex items-start gap-2 rounded-lg border border-[var(--danger)]/25 bg-danger-soft px-3 py-2">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
+              <p className="text-xs text-fg-muted">{testError}</p>
+            </div>
+          ) : null}
+          {testResult ? (
+            <div className="rounded-lg border border-[var(--success)]/25 bg-success-soft px-3 py-2 text-xs text-fg-muted">
+              Sent — Message-ID: <code className="font-mono">{testResult}</code>
+            </div>
+          ) : null}
+        </div>
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setTestMailbox(null)}>Close</Button>
+          <Button variant="primary" size="sm" loading={testSending} onClick={handleTestSend}>
+            Send test
+          </Button>
+        </div>
+      </Modal>
 
       <Modal
         open={connectOpen}
@@ -341,6 +441,51 @@ export function MailboxesPage() {
               placeholder="Sarah Whitfield"
             />
           </Field>
+
+          {provider === "imap_smtp" ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="IMAP host" htmlFor="imap-host">
+                  <Input id="imap-host" value={imapCfg.host} onChange={(e) => setImapCfg({ ...imapCfg, host: e.target.value })} placeholder="imap.spaceship.com" />
+                </Field>
+                <Field label="IMAP port" htmlFor="imap-port">
+                  <Input id="imap-port" type="number" value={imapCfg.port} onChange={(e) => setImapCfg({ ...imapCfg, port: Number(e.target.value) })} />
+                </Field>
+              </div>
+              <Field label="IMAP security" htmlFor="imap-secure">
+                <Select id="imap-secure" value={imapCfg.secure ? "ssl" : "none"} onChange={(e) => setImapCfg({ ...imapCfg, secure: e.target.value !== "none" })}>
+                  <option value="ssl">SSL/TLS (port 993)</option>
+                  <option value="none">Plain / STARTTLS</option>
+                </Select>
+              </Field>
+              <Field label="IMAP username" htmlFor="imap-user">
+                <Input id="imap-user" value={imapCfg.user} onChange={(e) => setImapCfg({ ...imapCfg, user: e.target.value })} />
+              </Field>
+              <Field label="IMAP password" htmlFor="imap-pass">
+                <Input id="imap-pass" type="password" value={imapCfg.pass} onChange={(e) => setImapCfg({ ...imapCfg, pass: e.target.value })} />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="SMTP host" htmlFor="smtp-host">
+                  <Input id="smtp-host" value={smtpCfg.host} onChange={(e) => setSmtpCfg({ ...smtpCfg, host: e.target.value })} placeholder="smtp.spaceship.com" />
+                </Field>
+                <Field label="SMTP port" htmlFor="smtp-port">
+                  <Input id="smtp-port" type="number" value={smtpCfg.port} onChange={(e) => setSmtpCfg({ ...smtpCfg, port: Number(e.target.value) })} />
+                </Field>
+              </div>
+              <Field label="SMTP security" htmlFor="smtp-secure">
+                <Select id="smtp-secure" value={smtpCfg.secure ? "ssl" : "none"} onChange={(e) => setSmtpCfg({ ...smtpCfg, secure: e.target.value !== "none" })}>
+                  <option value="ssl">SSL/TLS</option>
+                  <option value="none">Plain / STARTTLS</option>
+                </Select>
+              </Field>
+              <Field label="SMTP username" htmlFor="smtp-user">
+                <Input id="smtp-user" value={smtpCfg.user} onChange={(e) => setSmtpCfg({ ...smtpCfg, user: e.target.value })} />
+              </Field>
+              <Field label="SMTP password" htmlFor="smtp-pass">
+                <Input id="smtp-pass" type="password" value={smtpCfg.pass} onChange={(e) => setSmtpCfg({ ...smtpCfg, pass: e.target.value })} />
+              </Field>
+            </>
+          ) : null}
 
           {connectError ? (
             <div className="flex items-start gap-2 rounded-lg border border-[var(--danger)]/25 bg-danger-soft px-3 py-2">

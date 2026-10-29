@@ -98,6 +98,11 @@ export interface AuthFormParams {
   email?: string;
   expectedEmail?: string;
   name?: string;
+  /**
+   * Provider hint for mailcore ("google" | "microsoft" | "imap_smtp").
+   * Preferred over `type`, which mailcore ignores for routing.
+   */
+  provider?: string;
   /** OAuth2 application ID from EmailEngine's Integrations > OAuth2 Apps. */
   type?: string;
   skipServerSettings?: boolean;
@@ -152,6 +157,16 @@ export async function verifyAccount(settings: {
   smtp: { host: string; port: number; secure: boolean; user: string; pass: string };
 }): Promise<{ imap: boolean; smtp: boolean }> {
   return request("POST", "/v1/verifyaccount", settings);
+}
+
+export async function createManualAccount(settings: {
+  account: string;
+  email: string;
+  name?: string;
+  imap: Record<string, unknown>;
+  smtp: Record<string, unknown>;
+}): Promise<{ account: string; state?: string }> {
+  return request("POST", "/v1/account", settings);
 }
 
 /* -------------------------------------------------------------------------- */

@@ -1,4 +1,4 @@
-import { fromPostgresError, notFound } from "@/core/errors";
+import { badRequest, fromPostgresError, notFound } from "@/core/errors";
 import type { DbHandle } from "@/db";
 import type { MailboxSummary } from "@mailrung/shared";
 import {
@@ -8,11 +8,14 @@ import {
 } from "./repository";
 import type { CreateMailboxInput, UpdateMailboxInput } from "./validator";
 import {
+  createManualAccount,
   generateAuthForm,
   getAccount,
   healthFromState,
   isHealthyState,
   providerFromAccountType,
+  submitMessage,
+  verifyAccount,
 } from "@/lib/emailengine";
 import { env } from "@/env";
 
@@ -56,15 +59,54 @@ export function createMailboxService(deps: MailboxServiceDeps) {
      * EmailEngine to mint `emailengineId`; until then it is a placeholder.
      */
     async create(input: CreateMailboxInput): Promise<MailboxSummary> {
+      const wsId = await workspaceId();
+      // Manual IMAP/SMTP mailbox: verify first, then register with mailcore.
+      if (input.provider === "imap_smtp") {
+        if (!input.imap || !input.smtp) throw badRequest("IMAP and SMTP settings required");
+        const accountId = crypto.randomUUID();
+        const verification = await verifyAccount({
+          imap: input.imap as any,
+          smtp: input.smtp as any,
+        });
+        if (!verification.imap || !verification.smtp) {
+          throw badRequest(
+            `Verification failed (imap=${verification.imap}, smtp=${verification.smtp})`,
+          );
+        }
+        await createManualAccount({
+          account: accountId,
+          email: input.email,
+          name: input.displayName,
+          imap: input.imap as Record<string, unknown>,
+          smtp: input.smtp as Record<string, unknown>,
+        });
+        let row;
+        try {
+          row = await repository.create({
+            workspaceId: wsId,
+            email: input.email.toLowerCase(),
+            displayName: input.displayName ?? null,
+            provider: "imap_smtp",
+            emailengineId: accountId,
+            dailyCap: input.dailyCap,
+            tags: input.tags,
+          });
+        } catch (error) {
+          throw fromPostgresError(error);
+        }
+        const updated = await repository.update(wsId, row.id, {
+          status: "connected" as MailboxRow["status"],
+          healthScore: 95,
+        });
+        return toSummary(updated ?? row);
+      }
       let row;
       try {
         row = await repository.create({
-          workspaceId: await workspaceId(),
+          workspaceId: wsId,
           email: input.email.toLowerCase(),
           displayName: input.displayName ?? null,
           provider: input.provider,
-          // Real EmailEngine registration replaces this; a stub keeps the
-          // NOT NULL constraint satisfied so the schema does not lie.
           emailengineId: "pending",
           dailyCap: input.dailyCap,
           tags: input.tags,
@@ -118,6 +160,7 @@ export function createMailboxService(deps: MailboxServiceDeps) {
         email: input.email,
         expectedEmail: input.email,
         name: input.displayName,
+        provider: input.provider,
         type: oauthAppId || undefined,
         redirectUrl,
       });
@@ -184,6 +227,20 @@ export function createMailboxService(deps: MailboxServiceDeps) {
       const finalRow = updated ?? row;
 
       return toSummary(finalRow);
+    },
+
+    async testSend(
+      id: string,
+      input: { to: string; subject: string; text?: string; html?: string },
+    ): Promise<{ messageId: string; queueId?: string }> {
+      const current = await requireRow(await workspaceId(), id);
+      const result = await submitMessage(current.emailengineId, {
+        to: input.to,
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+      });
+      return result;
     },
   };
 }

@@ -17,6 +17,7 @@ export interface MailboxRow {
   displayName: string | null;
   provider: MailboxProvider;
   status: MailboxStatus;
+  emailengineId: string;
   dailyCap: number;
   healthScore: number;
   tags: string[];
@@ -33,6 +34,7 @@ const columns = {
   displayName: mailboxes.displayName,
   provider: mailboxes.provider,
   status: mailboxes.status,
+  emailengineId: mailboxes.emailengineId,
   dailyCap: mailboxes.dailyCap,
   healthScore: mailboxes.healthScore,
   tags: mailboxes.tags,
