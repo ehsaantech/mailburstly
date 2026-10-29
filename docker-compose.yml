@@ -283,6 +283,9 @@ services:
       # The site address. ":80" is plain HTTP on any host (local);
       # "mailburstly.openehsaan.com" turns on automatic HTTPS.
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      # TIEPOINT's API, served by this same edge (docker/Caddyfile). Locally,
+      # set it to http://tiepoint-api.localhost so no certificate is requested.
+      TIEPOINT_API_ADDRESS: ${TIEPOINT_API_ADDRESS:-api-tie.openehsaan.com}
     ports:
       # Host port -> container. The default is the production one; the local
       # .env keeps the app on 8080 (this repo does not take standard host

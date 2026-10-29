@@ -82,3 +82,39 @@
 		file_server
 	}
 }
+
+# ---------------------------------------------------------------------------
+# TIEPOINT — a second app on this server: its API, behind this same edge.
+#
+# This proxy owns ports 80/443 on the VPS, so the TIEPOINT stack runs without
+# a proxy of its own. Its API container joins this stack's network
+# (mailrung_default) under the alias `tiepoint-api` — never a bare `api`,
+# which is ours. The site gets its own certificate, like the one above.
+#
+#   TIEPOINT_API_ADDRESS unset  -> api-tie.openehsaan.com (production)
+#   TIEPOINT_API_ADDRESS=http://tiepoint-api.localhost  -> local: no
+#     certificate requests for a domain that does not point here
+#
+# Source of truth for this block: tiepoint repo, api/deploy/caddy/.
+# ---------------------------------------------------------------------------
+{$TIEPOINT_API_ADDRESS:api-tie.openehsaan.com} {
+	# uploads: the TIEPOINT UI sends up to 15 files per request, each at most
+	# 100 MB. Caddy streams the body to the upstream; it does not spool it.
+	request_body {
+		max_size 1600MB
+	}
+
+	# the API is all there is on this domain (its UI is on Vercel)
+	handle /api/* {
+		reverse_proxy tiepoint-api:8000 {
+			transport http {
+				# an upload is hashed and stored before the response
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+	handle {
+		respond 404
+	}
+}
