@@ -20,7 +20,7 @@ export interface SubmitResult {
   queueId?: string;
 }
 
-export function createEmailEngineClient(config: MailcoreConfig) {
+export function createMailcoreClient(config: MailcoreConfig) {
   const base = config.baseUrl.replace(/\/$/, "");
 
   async function post<T>(path: string, payload: unknown): Promise<T> {
@@ -109,4 +109,4 @@ export function createEmailEngineClient(config: MailcoreConfig) {
   };
 }
 
-export type MailcoreClient = ReturnType<typeof createEmailEngineClient>;
+export type MailcoreClient = ReturnType<typeof createMailcoreClient>;

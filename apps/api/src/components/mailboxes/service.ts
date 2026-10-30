@@ -17,7 +17,6 @@ import {
   submitMessage,
   verifyAccount,
 } from "@/lib/mailcore";
-import { env } from "@/env";
 import { raiseAlert } from "@/lib/alerts";
 
 export interface MailboxServiceDeps {
@@ -147,15 +146,12 @@ export function createMailboxService(deps: MailboxServiceDeps) {
     async connect(input: ConnectMailboxInput): Promise<ConnectResult> {
       const accountId = crypto.randomUUID();
 
-      const redirectUrl = `${env.PUBLIC_URL}/mailboxes/callback`;
-
       const form = await generateAuthForm({
         account: accountId,
         email: input.email,
         expectedEmail: input.email,
         name: input.displayName,
         provider: input.provider,
-        redirectUrl,
       });
 
       return { url: form.url, accountId };

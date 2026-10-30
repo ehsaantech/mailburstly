@@ -2,7 +2,7 @@
 #
 # mailcore — the mail gateway.
 #
-# The mail protocol work is done by the same MIT libraries EmailEngine is
+# The mail protocol work is done by the same MIT libraries the old engine used
 # built on: imapflow (IMAP), nodemailer (SMTP), mailparser (MIME).
 
 FROM oven/bun:1.4-alpine AS runtime

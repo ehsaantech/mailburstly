@@ -2,7 +2,7 @@
 
 Go send hot path. Polls `send_jobs` with `FOR UPDATE SKIP LOCKED`, groups by
 mailbox, applies per-mailbox pacing (daily quota, min-gap, random jitter), and
-submits to EmailEngine concurrently.
+submits to the mail gateway concurrently.
 
 ## Why a separate binary
 
@@ -20,7 +20,7 @@ They share only Postgres.
 go run ./cmd/dispatcher
 ```
 
-Requires `DATABASE_URL` and `EMAILENGINE_API_TOKEN` (or `EMAILENGINE_SECRET`).
+Requires `DATABASE_URL` and `MAILCORE_API_TOKEN`.
 
 ## Health
 

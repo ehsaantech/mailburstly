@@ -7,7 +7,7 @@ Bun + BullMQ job processor. Same layered convention as `apps/api`.
 | Component | Trigger | Responsibility |
 |---|---|---|
 | `scheduler` | Repeatable job, every 30s | Compute due steps → INSERT `send_jobs` rows |
-| `reply-intake` | EmailEngine `email_received` webhook | Attribute, store, classify, fan out |
+| `reply-intake` | the mail gateway's `messageNew` webhook | Attribute, store, classify, fan out |
 | `classification` | Called by reply-intake | Regex pre-filter + LLM → apply status |
 | `verification` | Called after lead import | Provider calls, cache, quarantine |
 | `webhooks` | BullMQ delayed jobs | Outbound delivery with retries |

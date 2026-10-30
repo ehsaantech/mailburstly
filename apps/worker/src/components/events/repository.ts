@@ -60,11 +60,11 @@ export function createEventsRepository({ db }: { db: Database }) {
 
     /* ------------------------------ mailboxes ---------------------------- */
 
-    async mailboxByEmailEngineId(emailEngineId: string) {
+    async mailboxByMailcoreAccountId(mailcoreAccountId: string) {
       const rows = await db
         .select()
         .from(mailboxes)
-        .where(eq(mailboxes.mailcoreAccountId, emailEngineId))
+        .where(eq(mailboxes.mailcoreAccountId, mailcoreAccountId))
         .limit(1);
       return rows[0] ?? null;
     },

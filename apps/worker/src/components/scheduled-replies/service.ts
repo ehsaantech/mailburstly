@@ -1,7 +1,7 @@
 import type { Logger } from "@/core/logger";
 import { raiseAlert } from "@/lib/alerts";
 import {
-  createEmailEngineClient,
+  createMailcoreClient,
   type MailcoreClient,
 } from "@/lib/mailcore";
 import {
@@ -28,7 +28,7 @@ export function createScheduledReplyService(deps: ScheduledReplyServiceDeps) {
   });
   const { log } = deps;
 
-  const client: MailcoreClient = createEmailEngineClient({
+  const client: MailcoreClient = createMailcoreClient({
     baseUrl: deps.mailcore.baseUrl,
     apiKey: deps.mailcore.apiKey,
     timeoutMs: deps.mailcore.timeoutMs ?? 20_000,
@@ -69,7 +69,7 @@ export function createScheduledReplyService(deps: ScheduledReplyServiceDeps) {
         const parent = await repo.lastInboundMessage(row.conversation.id);
 
         try {
-          const result = await client.submit(row.mailboxEmailEngineId, {
+          const result = await client.submit(row.mailboxMailcoreAccountId, {
             to: row.conversation.contactEmail,
             subject: draft.subject,
             html: draft.bodyHtml,

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { createEmailEngineClient } from "./mailcore";
+import { createMailcoreClient } from "./mailcore";
 
 const realFetch = globalThis.fetch;
 
@@ -25,7 +25,7 @@ function capture(): Captured[] {
   return calls;
 }
 
-const client = createEmailEngineClient({
+const client = createMailcoreClient({
   baseUrl: "http://mailcore:3000",
   apiKey: "token",
   timeoutMs: 5_000,

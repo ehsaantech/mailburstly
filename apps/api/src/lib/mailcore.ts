@@ -44,7 +44,7 @@ async function request<T>(
     // The gateway is down. Nothing can be sent until it is back, so this is
     // worth an email rather than a log line nobody reads.
     void raiseAlert({
-      key: "api.emailengine_unreachable",
+      key: "api.mailcore_unreachable",
       title: "The api cannot reach the mail gateway",
       message: `mailcore at ${BASE} did not answer: ${detail}`,
       severity: "error",
@@ -71,7 +71,7 @@ async function request<T>(
     // a bug to fix rather than an incident to page about.
     if (response.status >= 500) {
       void raiseAlert({
-        key: "api.emailengine_error",
+        key: "api.mailcore_error",
         title: "The mail gateway refused a request",
         message: `mailcore ${method} ${path} returned ${response.status}: ${detail}`,
         severity: "error",
@@ -124,13 +124,8 @@ export interface AuthFormParams {
   name?: string;
   /**
    * Provider hint for mailcore ("google" | "microsoft" | "imap_smtp").
-   * Preferred over `type`, which mailcore ignores for routing.
    */
   provider?: string;
-  /** OAuth2 application ID from mailcore's Integrations > OAuth2 Apps. */
-  type?: string;
-  skipServerSettings?: boolean;
-  redirectUrl: string;
 }
 
 export interface AuthFormResult {

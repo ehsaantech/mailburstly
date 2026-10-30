@@ -5,7 +5,7 @@ operators, warmup deliberately deferred.
 
 - **[PRD.md](./PRD.md)** — what the product does
 - **[architecture.md](./architecture.md)** — how the system is built and wired
-- **[mailcore.md](./mailcore.md)** — how `apps/mailcore` replaced EmailEngine,
+- **[mailcore.md](./mailcore.md)** — how `apps/mailcore` took over the mail protocol work,
   and how to run OAuth in production
 
 ## Status
@@ -144,7 +144,7 @@ bun run dev            # http://localhost:5173
 Or the whole stack, which is what the VPS runs:
 
 ```bash
-cp .env.example .env   # then fill in EMAILENGINE_API_TOKEN
+cp .env.example .env   # then fill in MAILCORE_API_TOKEN
 docker compose up -d --build
 open http://localhost:8080
 ```
@@ -207,19 +207,19 @@ mismatch, checks light-mode contrast ratios, and writes screenshots to
 
 Mailcore owns everything protocol-shaped: OAuth2 consent, IMAP/SMTP transport,
 the Gmail API and Microsoft Graph, the tracking pixel, and the webhook events
-the worker consumes. It speaks the subset of EmailEngine's REST contract the
-app already calls, so the api, worker and dispatcher are unchanged.
+the worker consumes. It speaks the same REST contract the api, the worker and the
+dispatcher already called, so none of them changed shape.
 
-The cutover is one variable:
+The cutover is two variables:
 
 ```bash
-EMAILENGINE_API_URL=http://mailcore:3004
-EMAILENGINE_API_TOKEN=<MAILCORE_API_TOKEN>
+MAILCORE_API_URL=http://mailcore:3004
+MAILCORE_API_TOKEN=<the token mailcore expects>
 ```
 
 The worker receives mail events over the same path it always did
-(`/webhooks/emailengine`), signed with the same HMAC key — `MAILCORE_WEBHOOK_SECRET`
-must equal `EMAILENGINE_SERVICE_SECRET`, or the worker rejects the event.
+(`/webhooks/mailcore`), signed with an HMAC key — `MAILCORE_WEBHOOK_SECRET` on
+both sides. A mismatch silently rejects every mail event.
 
 Check what mailcore knows:
 

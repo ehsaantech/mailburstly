@@ -15,7 +15,7 @@ describe("unsubscribe tokens", () => {
   test("refuses a token with a broken signature", () => {
     const token = tokenForEmail("haroon@yopmail.com");
     const [payload, signature] = token.split(".");
-    const flipped = signature.slice(0, -1) + (signature.endsWith("A") ? "B" : "A");
+    const flipped = signature!.slice(0, -1) + (signature!.endsWith("A") ? "B" : "A");
     expect(emailFromToken(`${payload}.${flipped}`)).toBeNull();
   });
 

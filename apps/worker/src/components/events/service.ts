@@ -162,7 +162,7 @@ export function createEventsService(deps: EventsServiceDeps) {
     const workspaceId = await repo.workspaceId();
     if (!workspaceId) return;
 
-    const mailbox = await repo.mailboxByEmailEngineId(account);
+    const mailbox = await repo.mailboxByMailcoreAccountId(account);
     if (!mailbox) {
       log.warn("webhook for unknown mailbox", { account });
       return;
@@ -477,7 +477,7 @@ export function createEventsService(deps: EventsServiceDeps) {
     const workspaceId = await repo.workspaceId();
     if (!workspaceId) return;
 
-    const mailbox = await repo.mailboxByEmailEngineId(account);
+    const mailbox = await repo.mailboxByMailcoreAccountId(account);
     const recipient = data.recipient?.toLowerCase() ?? "";
 
     const reason =

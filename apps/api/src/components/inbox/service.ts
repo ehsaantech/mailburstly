@@ -107,7 +107,7 @@ export function createInboxService(deps: InboxServiceDeps) {
 
       let result: { messageId: string; queueId?: string };
       try {
-        result = await submitMessage(row.mailboxEmailEngineId, {
+        result = await submitMessage(row.mailboxMailcoreAccountId, {
           to: row.contactEmail,
           subject,
           html: input.bodyHtml,
