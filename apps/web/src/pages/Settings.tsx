@@ -24,6 +24,9 @@ interface LlmSettings {
   model: string;
   minConfidence: number;
   enabled: boolean;
+  writerModel: string;
+  writerMaxTokens: number;
+  writerTimeoutMs: number;
 }
 
 interface LlmModel {
@@ -53,6 +56,9 @@ function LlmCard() {
     (llm?.minConfidence ?? 0.7).toFixed(2),
   );
   const [enabled, setEnabled] = useState(llm?.enabled ?? true);
+  const [writerModel, setWriterModel] = useState(llm?.writerModel ?? "gpt-oss:20b");
+  const [writerMaxTokens, setWriterMaxTokens] = useState(llm?.writerMaxTokens ?? 1200);
+  const [writerTimeoutMs, setWriterTimeoutMs] = useState(llm?.writerTimeoutMs ?? 45000);
   const [hydrated, setHydrated] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
@@ -63,6 +69,9 @@ function LlmCard() {
     setModel(llm.model);
     setConfidence(llm.minConfidence.toFixed(2));
     setEnabled(llm.enabled);
+    setWriterModel(llm.writerModel ?? "gpt-oss:20b");
+    setWriterMaxTokens(llm.writerMaxTokens ?? 1200);
+    setWriterTimeoutMs(llm.writerTimeoutMs ?? 45000);
     setHydrated(true);
   }, [hydrated, llm]);
 
@@ -82,6 +91,9 @@ function LlmCard() {
       model,
       minConfidence: Number(confidence),
       enabled,
+      writerModel,
+      writerMaxTokens,
+      writerTimeoutMs,
     });
   };
 
@@ -144,6 +156,52 @@ function LlmCard() {
           is not calibrated, so a confident rule result can override it.
         </p>
       )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Drafting model" htmlFor="writer-model">
+          <Select
+            id="writer-model"
+            value={writerModel}
+            onChange={(e) => setWriterModel(e.target.value)}
+            disabled={models.isLoading}
+          >
+            {modelList.length === 0 ? (
+              <option value={writerModel}>{writerModel}</option>
+            ) : (
+              modelList.map((m) => (
+                <option key={m.name} value={m.name}>
+                  {m.name}
+                  {m.decision ? "  (decision model)" : ""}
+                </option>
+              ))
+            )}
+          </Select>
+        </Field>
+        <Field label="Max tokens" htmlFor="writer-max-tokens">
+          <Input
+            id="writer-max-tokens"
+            type="number"
+            min={64}
+            max={8192}
+            value={writerMaxTokens}
+            onChange={(e) => setWriterMaxTokens(Number(e.target.value) || 1200)}
+          />
+        </Field>
+      </div>
+      <div className="flex items-center justify-end">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() =>
+            api.post("/settings/llm/test", { model: writerModel }).then((r: any) =>
+              alert(r?.data?.ok ? `Online: ${r.data.draft}` : `Failed: ${r.data?.error}`),
+            )
+          }
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          Test drafting model
+        </Button>
+      </div>
 
       <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-muted/50 p-2.5">
         <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-subtle" />

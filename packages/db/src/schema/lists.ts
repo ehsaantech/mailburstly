@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   pgTable,
   text,
@@ -8,7 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { leads } from "./leads";
-import { workspaces } from "./core";
+import { users, workspaces } from "./core";
 import { campaigns } from "./campaigns";
 
 /**
@@ -26,6 +27,9 @@ export const leadLists = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -86,5 +90,31 @@ export const campaignLists = pgTable(
   (t) => [
     uniqueIndex("campaign_lists_unique_idx").on(t.campaignId, t.listId),
     index("campaign_lists_list_idx").on(t.listId),
+  ],
+);
+
+/**
+ * Watchers attached to a list.
+ */
+export const listWatchers = pgTable(
+  "list_watchers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    listId: uuid("list_id")
+      .notNull()
+      .references(() => leadLists.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    inApp: boolean("in_app").notNull().default(true),
+    email: boolean("email").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("list_watchers_unique_idx").on(t.listId, t.userId),
+    index("list_watchers_list_idx").on(t.listId),
+    index("list_watchers_user_idx").on(t.userId),
   ],
 );

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 
 import { created, noContent, ok, paginated } from "@/core/response";
 import { parseJson, parseParams } from "@/core/validate";
@@ -61,6 +62,29 @@ export function createCampaignRoutes(
   routes.post("/:id/pause", async (c) => {
     const { id } = parseParams(c, campaignParamsSchema);
     return ok(c, { campaign: await campaigns.pause(id) });
+  });
+
+  routes.post("/:id/archive", async (c) => {
+    const { id } = parseParams(c, campaignParamsSchema);
+    return ok(c, { campaign: await campaigns.archive(id) });
+  });
+
+  routes.post("/:id/restore", async (c) => {
+    const { id } = parseParams(c, campaignParamsSchema);
+    return ok(c, { campaign: await campaigns.restore(id) });
+  });
+
+  routes.post("/:id/duplicate", async (c) => {
+    const { id } = parseParams(c, campaignParamsSchema);
+    return created(c, { campaign: await campaigns.duplicate(id) });
+  });
+
+  routes.post("/bulk", async (c) => {
+    const input = await parseJson(c, z.object({
+      action: z.enum(["pause", "resume", "archive", "restore", "delete", "duplicate"]),
+      ids: z.array(z.string().uuid()).min(1).max(200),
+    }));
+    return ok(c, await campaigns.bulk(input.action, input.ids));
   });
 
   routes.post("/:id/resume", async (c) => {

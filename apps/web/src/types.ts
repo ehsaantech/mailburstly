@@ -55,6 +55,9 @@ export interface Campaign {
   stepCount: number;
   pausedReason: string | null;
   tags: string[];
+  emailGapMinutes?: number | null;
+  randomWaitMax?: number | null;
+  archivedAt?: string | null;
 }
 
 export interface CampaignStep {

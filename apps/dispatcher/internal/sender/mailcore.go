@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -99,30 +101,50 @@ func (c *MailcoreClient) SubmitMessage(job *types.SendJob) (*types.SendResult, e
 	}
 	body := render.Render(bodyTmpl, data, opts)
 
+	// Step 1 is always plain text: no HTML, no tracking pixel, no rewritten
+	// links. A campaign may also ask for plain text for every step.
+	textOnly := job.TextOnly || job.StepPosition == 1
+
 	// A plain-text alternative is derived from the body so clients that
 	// cannot render HTML still get something readable.
-	text := job.StepBodyText
-	if text == nil {
-		text = &body
+	var plain string
+	if job.StepBodyText != nil {
+		plain = render.Render(*job.StepBodyText, data, opts)
+	} else if textOnly {
+		plain = htmlToText(body)
+	} else {
+		plain = render.Render(body, data, opts)
 	}
-	plain := render.Render(*text, data, opts)
 
 	// mailcore expects recipients as an array of address objects, and the
 	// sending account is identified by its id in the URL path.
+	htmlBody := body
+	if textOnly {
+		htmlBody = ""
+	}
+	trackOpens := job.OpenTracking
+	trackClicks := job.LinkTracking
+	if textOnly {
+		trackOpens = false
+		trackClicks = false
+	}
+
 	payload := map[string]any{
 		"to": []map[string]any{
 			{"address": job.LeadEmail},
 		},
 		"subject": subject,
 		"text":    plain,
-		"html":    body,
 		// Tracking is a per-campaign switch. mailcore inserts the
 		// tracking pixel and rewrites the links itself when these are on.
-		"trackOpens":  job.OpenTracking,
-		"trackClicks": job.LinkTracking,
+		"trackOpens":  trackOpens,
+		"trackClicks": trackClicks,
 		// The List-Unsubscribe header, when the campaign asks for one. The
 		// link identifies the recipient, so mailcore mints it per message.
 		"unsubscribeHeader": job.UnsubscribeHeader,
+	}
+	if htmlBody != "" {
+		payload["html"] = htmlBody
 	}
 
 	data2, err := json.Marshal(payload)
@@ -166,4 +188,22 @@ func (c *MailcoreClient) SubmitMessage(job *types.SendJob) (*types.SendResult, e
 		return &types.SendResult{}, nil
 	}
 	return &result, nil
+}
+
+// htmlToText flattens an HTML body into readable plain text for the
+// text-only path. It is deliberately dependency-free.
+func htmlToText(htmlIn string) string {
+	s := htmlIn
+	reBr := regexp.MustCompile(`(?i)<br\s*/?>`)
+	s = reBr.ReplaceAllString(s, "\n")
+	reBlock := regexp.MustCompile(`(?i)</(p|div|li|h[1-6]|tr)>`)
+	s = reBlock.ReplaceAllString(s, "\n")
+	reBullet := regexp.MustCompile(`(?i)<li[^>]*>`)
+	s = reBullet.ReplaceAllString(s, "  • ")
+	reTag := regexp.MustCompile(`</?[^>]+>`)
+	s = reTag.ReplaceAllString(s, "")
+	s = html.UnescapeString(s)
+	reBlank := regexp.MustCompile(`\n{3,}`)
+	s = reBlank.ReplaceAllString(s, "\n\n")
+	return strings.TrimSpace(s)
 }

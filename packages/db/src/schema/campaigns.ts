@@ -40,6 +40,10 @@ export const campaigns = pgTable(
     insertUnsubscribeHeader: boolean("insert_unsubscribe_header")
       .notNull()
       .default(true),
+    /** Free-form tags, lower-cased on write. Used to filter and group campaigns. */
+    tags: text("tags").array().notNull().default([]),
+    /** Set when the campaign is archived. Archived campaigns stop sending. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
     allowRiskyContacts: boolean("allow_risky_contacts").notNull().default(false),
     /**
      * When a lead is added to a list attached to this campaign, enroll it

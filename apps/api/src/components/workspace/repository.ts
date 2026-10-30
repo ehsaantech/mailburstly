@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 
-import { workspaces, type Database } from "@mailrung/db";
+import { users, workspaceMembers, workspaces, type Database } from "@mailrung/db";
 import type { WorkspaceSummary } from "@mailrung/shared";
 
 /**
@@ -41,6 +41,27 @@ export function createWorkspaceRepository({ db }: { db: Database }) {
         .where(eq(workspaces.id, id))
         .limit(1);
       return rows[0]?.name ?? "Mailrung";
+    },
+
+    async members(): Promise<Array<{ userId: string; name: string; email: string; role: string }>> {
+      const ws = await this.primary();
+      const rows = await db
+        .select({
+          userId: users.id,
+          name: users.name,
+          email: users.email,
+          role: workspaceMembers.role,
+        })
+        .from(workspaceMembers)
+        .innerJoin(users, eq(users.id, workspaceMembers.userId))
+        .where(eq(workspaceMembers.workspaceId, ws.id))
+        .orderBy(users.name);
+      return rows.map((r) => ({
+        userId: r.userId,
+        name: r.name,
+        email: r.email,
+        role: String(r.role ?? "member"),
+      }));
     },
   };
 }

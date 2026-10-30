@@ -28,6 +28,8 @@ import { createSubsequenceRoutes } from "@/components/subsequences/controller";
 import { createPublicApiService } from "@/components/public-api/service";
 import { createPublicApiRoutes } from "@/components/public-api/controller";
 import { createSettingsService } from "@/components/settings/service";
+import { createNotificationService } from "@/components/notifications/service";
+import { createNotificationRoutes } from "@/components/notifications/controller";
 import { createSettingsRoutes } from "@/components/settings/controller";
 import { createListService } from "@/components/lists/service";
 import { createListRoutes } from "@/components/lists/controller";
@@ -74,6 +76,8 @@ export function createRootRouter(db: DbHandle, log: Logger) {
 
   const inboxService = createInboxService({ db, workspaceId });
 
+  const notificationService = createNotificationService({ db, workspaceId });
+
   const analyticsService = createAnalyticsService({ db, workspaceId });
 
   const webhookService = createWebhookService({ db, workspaceId });
@@ -93,6 +97,7 @@ export function createRootRouter(db: DbHandle, log: Logger) {
   const settingsService = createSettingsService({
     db,
     llmBaseUrl: env.LLM_BASE_URL,
+    llmApiKey: env.LLM_API_KEY,
   });
 
   const apiKeyAuth = createApiKeyAuth({ webhooks: webhookService });
@@ -160,7 +165,7 @@ export function createRootRouter(db: DbHandle, log: Logger) {
     createWorkspaceRoutes(workspaceRepository, requireAuth),
   );
   app.route("/inbox", createInboxRoutes(inboxService, requireAuth));
-  app.route(
+  app.route("/notifications", createNotificationRoutes(notificationService, requireAuth));  app.route(
     "/analytics",
     createAnalyticsRoutes(analyticsService, requireAuth),
   );
