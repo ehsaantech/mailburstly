@@ -93,6 +93,7 @@ export function createRootRouter(db: DbHandle, log: Logger) {
   const settingsService = createSettingsService({
     db,
     llmBaseUrl: env.LLM_BASE_URL,
+    llmApiKey: env.LLM_API_KEY,
   });
 
   const apiKeyAuth = createApiKeyAuth({ webhooks: webhookService });

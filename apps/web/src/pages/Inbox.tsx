@@ -139,6 +139,7 @@ export function InboxPage() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [suggestMeta, setSuggestMeta] = useState<{ model: string | null; latencyMs?: number } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [remindOpen, setRemindOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -257,11 +258,15 @@ export function InboxPage() {
 
   const suggest = useMutation({
     mutationFn: () =>
-      api.post<{ data: { draft: string; model: string | null } }>(
+      api.post<{ data: { draft: string; model: string | null; latencyMs?: number } }>(
         `/inbox/conversations/${selectedId}/suggest`,
         { tone: "direct" },
       ),
     onSuccess: (result) => {
+      setSuggestMeta({
+        model: result.data.model,
+        latencyMs: result.data.latencyMs,
+      });
       setDraft((current) =>
         current.trim()
           ? `${current}
@@ -270,7 +275,18 @@ ${result.data.draft}`
           : result.data.draft,
       );
     },
+    onError: (error) => {
+      setSuggestMeta(null);
+      setSendError(error instanceof Error ? error.message : "No suggestion could be generated");
+    },
   });
+
+  // Don't let a draft from one thread leak into another.
+  useEffect(() => {
+    setDraft("");
+    setSuggestMeta(null);
+    setSendError(null);
+  }, [selectedId]);
 
   const handleSend = () => {
     if (!draft.trim()) return;
@@ -636,6 +652,11 @@ ${result.data.draft}`
                           <Sparkles className="h-3.5 w-3.5" />
                           {suggest.isPending ? "Writing…" : "Suggest"}
                         </Button>
+                        {suggestMeta && !suggest.isPending ? (
+                          <span className="ml-2 hidden text-[10px] text-fg-subtle sm:inline">
+                            {suggestMeta.model ? `${suggestMeta.model}` : ""}{suggestMeta.latencyMs ? ` · ${suggestMeta.latencyMs}ms` : ""}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Button variant="ghost" size="icon" aria-label="Reply">

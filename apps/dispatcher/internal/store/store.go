@@ -61,6 +61,7 @@ const jobSelect = `
 			     ELSE cs.body_text END AS body_text,
 			COALESCE(ss.delay_minutes, cs.delay_minutes) AS delay_minutes,
 			cs.thread_mode,
+			cs.position,
 			sv.id,
 			sv.subject,
 			sv.body_html
@@ -143,6 +144,7 @@ func (s *JobStore) selectJobs(ctx context.Context, tail string, args ...any) ([]
 			&workspaceID, &leadID, &campaignID, &mailboxEmail,
 			&subject, &j.StepBodyHTML, &bodyText,
 			&j.StepDelayMin, &j.ThreadMode,
+			&j.StepPosition,
 			&variantIDVal, &variantSubject, &variantBody,
 		)
 		if err != nil {
@@ -422,6 +424,7 @@ func (s *MailboxStore) LastSendTime(ctx context.Context, mailboxID string) (*tim
 	}
 	return lastJob, nil
 }
+
 // stringMap flattens a jsonb custom-variables object into strings. Values
 // that are not strings are rendered with their JSON representation.
 func stringMap(in map[string]any) map[string]string {
