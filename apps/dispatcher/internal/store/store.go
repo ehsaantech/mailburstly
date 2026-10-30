@@ -33,7 +33,7 @@ const jobSelect = `
 			sj.state,
 			sj.attempts,
 			sj.last_error,
-			m.emailengine_id,
+			m.mailcore_account_id,
 			cl.last_sent_at,
 			(SELECT max(sj2.scheduled_at) FROM send_jobs sj2
 			 WHERE sj2.mailbox_id = sj.mailbox_id
@@ -134,7 +134,7 @@ func (s *JobStore) selectJobs(ctx context.Context, tail string, args ...any) ([]
 		err := rows.Scan(
 			&j.ID, &j.CampaignLeadID, &j.StepID, &j.MailboxID,
 			&j.ScheduledAt, &j.State, &j.Attempts, &lastError,
-			&j.EmailEngineAccountID,
+			&j.MailcoreAccountID,
 			&lastSend,
 			&mailboxLastSend,
 			&j.LeadEmail, &firstName, &lastName, &title, &company,
@@ -281,7 +281,7 @@ func (s *JobStore) RecordActivity(ctx context.Context, workspaceID, campaignID, 
 // RecordSentMessage stores the Message-ID of a message we just sent.
 //
 // This is the join key for everything that comes back later: a bounce, a
-// complaint, an unsubscribe. EmailEngine does not use VERP, so the
+// complaint, an unsubscribe. mailcore does not use VERP, so the
 // Message-ID is the only reliable link between a send and its consequences.
 func (s *JobStore) RecordSentMessage(ctx context.Context, j *types.SendJob, messageID, subject string) error {
 	if messageID == "" {
@@ -347,9 +347,9 @@ func (s *MailboxStore) Get(ctx context.Context, id string) (*types.Mailbox, erro
 	var m types.Mailbox
 	var lastSend *time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, email, emailengine_id, status, daily_cap, health_score, last_send_at
+		SELECT id, email, mailcore_account_id, status, daily_cap, health_score, last_send_at
 		FROM mailboxes WHERE id = $1
-	`, id).Scan(&m.ID, &m.Email, &m.EmailEngineID, &m.Status, &m.DailyCap, &m.HealthScore, &lastSend)
+	`, id).Scan(&m.ID, &m.Email, &m.MailcoreID, &m.Status, &m.DailyCap, &m.HealthScore, &lastSend)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil

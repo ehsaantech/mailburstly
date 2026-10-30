@@ -67,7 +67,7 @@ export const conversations = pgTable(
 );
 
 /**
- * One inbound or outbound message. `providerMessageId` is EmailEngine's own
+ * One inbound or outbound message. `providerMessageId` is mailcore's own
  * id, which is what makes ingestion idempotent: a webhook redelivery updates
  * the existing row instead of creating a second one.
  */

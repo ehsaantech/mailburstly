@@ -183,7 +183,7 @@ export function createInboxRepository({ db }: { db: Database }) {
         .select({
           ...getTableColumns(conversations),
           mailboxEmail: mailboxes.email,
-          mailboxEmailEngineId: mailboxes.emailengineId,
+          mailboxEmailEngineId: mailboxes.mailcoreAccountId,
           leadFirstName: leads.firstName,
           leadLastName: leads.lastName,
           leadCompany: leads.company,

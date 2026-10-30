@@ -37,9 +37,16 @@ jobs:
             cd /opt/instantly.replica
             git fetch origin main
             git reset --hard "$SHA"
+            # Build first, so the migration runs against the image that is
+            # about to serve traffic rather than the one it replaces.
+            docker compose build
+            # Apply schema migrations before the new code starts: the api and
+            # the worker query tables that do not exist until this runs, so
+            # migrating first is what keeps a deploy from crashing.
+            docker compose run --rm --workdir /app api bun run db:migrate
             # The Caddyfile is baked into the edge image, so the rebuild
             # picks up a changed one — no reload, no restart.
-            docker compose up -d --build --remove-orphans
+            docker compose up -d --remove-orphans
             docker compose ps --format 'table {{.Name}}\t{{.Status}}'
           REMOTE
 

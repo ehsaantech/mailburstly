@@ -23,9 +23,9 @@ import {
  *
  * The OAuth connect/callback pair is the exception: `connect` requires auth
  * (only a logged-in operator may add a mailbox), but `callback` does NOT, because
- * EmailEngine redirects the browser there after the user consents on Google's
+ * mailcore redirects the browser there after the user consents on Google's
  * side and the session cookie may not survive the cross-site hop. The callback
- * is therefore unauthed but only acts on an account id that EmailEngine itself
+ * is therefore unauthed but only acts on an account id that mailcore itself
  * minted, which keeps it safe.
  */
 export function createMailboxRoutes(
@@ -72,9 +72,9 @@ export function createMailboxRoutes(
   });
 
   /**
-   * Finalise a hosted OAuth flow. EmailEngine redirects the browser here with
+   * Finalise a hosted OAuth flow. mailcore redirects the browser here with
    * `?account=...&state=new|existing` after a successful consent. We fetch
-   * the account from EmailEngine, create (or update) our mailbox row, and
+   * the account from mailcore, create (or update) our mailbox row, and
    * compute an initial health score from the connection state.
    */
   routes.post("/callback", async (c) => {

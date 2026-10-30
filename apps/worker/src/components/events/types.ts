@@ -1,40 +1,40 @@
 /**
- * EmailEngine webhook payload shapes.
+ * mailcore webhook payload shapes.
  *
- * These mirror the events we consume. Every field is optional: EmailEngine
+ * These mirror the events we consume. Every field is optional: mailcore
  * omits whatever the provider did not supply, and a handler that assumes a
  * field exists will crash on a perfectly valid payload.
  *
- * @see https://learn.emailengine.app/docs/reference/webhook-events
+ * @see https://learn.mailcore.app/docs/reference/webhook-events
  */
 
-export interface EmailEngineAddress {
+export interface MailcoreAddress {
   name?: string;
   address?: string;
 }
 
-export interface EmailEngineText {
+export interface MailcoreText {
   id?: string;
   plain?: string;
   html?: string;
   hasMore?: boolean;
 }
 
-export interface EmailEngineMessageData {
-  /** EmailEngine's own id for the message. */
+export interface MailcoreMessageData {
+  /** mailcore's own id for the message. */
   id?: string;
   /** Globally unique provider id (Gmail message id, IMAP EMAILID). */
   emailId?: string;
   threadId?: string;
   date?: string;
   subject?: string;
-  from?: EmailEngineAddress;
-  to?: EmailEngineAddress[];
-  cc?: EmailEngineAddress[];
-  replyTo?: EmailEngineAddress[];
+  from?: MailcoreAddress;
+  to?: MailcoreAddress[];
+  cc?: MailcoreAddress[];
+  replyTo?: MailcoreAddress[];
   messageId?: string;
   inReplyTo?: string;
-  text?: EmailEngineText;
+  text?: MailcoreText;
   preview?: string;
   /** True when the subject or headers say it is an automatic reply. */
   isAutoReply?: boolean;
@@ -53,8 +53,8 @@ export interface EmailEngineMessageData {
   [key: string]: unknown;
 }
 
-export interface EmailEngineBounceData {
-  /** EmailEngine id of the bounce notification message. */
+export interface MailcoreBounceData {
+  /** mailcore id of the bounce notification message. */
   bounceMessage?: string;
   /** The address that bounced. */
   recipient?: string;
@@ -77,7 +77,7 @@ export interface EmailEngineBounceData {
   messageHeaders?: Record<string, string[]> | null;
 }
 
-export interface EmailEngineSentData {
+export interface MailcoreSentData {
   messageId?: string;
   originalMessageId?: string;
   response?: string;
@@ -85,7 +85,7 @@ export interface EmailEngineSentData {
   envelope?: { from?: string; to?: string[] };
 }
 
-export interface EmailEngineTrackData {
+export interface MailcoreTrackData {
   messageId?: string;
   originalMessageId?: string;
   /** "open" or "click". */
@@ -96,8 +96,8 @@ export interface EmailEngineTrackData {
   date?: string;
 }
 
-/** The envelope every EmailEngine webhook shares. */
-export interface EmailEngineEvent<T = unknown> {
+/** The envelope every mailcore webhook shares. */
+export interface MailcoreEvent<T = unknown> {
   serviceUrl?: string | null;
   /** The account (mailbox) the event came from. */
   account?: string;

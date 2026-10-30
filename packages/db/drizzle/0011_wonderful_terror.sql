@@ -1,0 +1,1 @@
+ALTER TABLE "mailboxes" RENAME COLUMN "emailengine_id" TO "mailcore_account_id";

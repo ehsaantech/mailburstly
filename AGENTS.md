@@ -11,6 +11,17 @@
   path, prove it on `haroon@yopmail.com`, and leave the real send to them.
 - Say in the summary which address a test went to.
 
+## Alerts
+
+- The alert recipients live in the database (`alert_recipients`), not in an
+  environment variable. **haroon@ehsaantech.com** is the operator's own
+  address and is on that list.
+- That address is where *live* alerts go — the system telling the operator
+  that something broke. It is not a test sink: the test sink is
+  haroon@yopmail.com.
+- `bun run verify:alerts` and `bun run verify:alert-recipients` send their
+  test to haroon@yopmail.com unless `TEST_RECIPIENT` says otherwise.
+
 ## Verify
 
 - `bun run typecheck` — types across every app and package.

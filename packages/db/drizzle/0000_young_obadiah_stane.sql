@@ -17,7 +17,7 @@ CREATE TABLE "mailboxes" (
 	"display_name" text,
 	"provider" "mailbox_provider" NOT NULL,
 	"status" "mailbox_status" DEFAULT 'connected' NOT NULL,
-	"emailengine_id" text NOT NULL,
+	"mailcore_account_id" text NOT NULL,
 	"daily_cap" integer DEFAULT 30 NOT NULL,
 	"health_score" real DEFAULT 100 NOT NULL,
 	"tags" text[] DEFAULT '{}' NOT NULL,

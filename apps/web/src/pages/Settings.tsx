@@ -10,6 +10,7 @@ import { Avatar } from "@/components/ui/Stat";
 import { users } from "@/mocks/data";
 import { initials } from "@/lib/format";
 import { usePreferences } from "@/lib/preferences";
+import { AlertRecipientsCard } from "@/components/AlertRecipientsCard";
 
 
 /* -------------------------------------------------------------------------- */
@@ -355,6 +356,9 @@ export function SettingsPage() {
           </CardBody>
         </Card>
       </div>
+
+      {/* Alert recipients */}
+      <AlertRecipientsCard />
 
       {/* Users */}
       <Card className="mt-4">

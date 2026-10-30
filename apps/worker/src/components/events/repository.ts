@@ -17,7 +17,7 @@ import {
 } from "@mailrung/db";
 
 /**
- * The db layer for the EmailEngine event pipeline.
+ * The db layer for the mailcore event pipeline.
  *
  * Every write the pipeline performs lives here, so the services above can be
  * read as business logic and the SQL stays in one place.
@@ -39,7 +39,7 @@ export function createEventsRepository({ db }: { db: Database }) {
     /**
      * True when this event id was already handled.
      *
-     * EmailEngine retries a failed delivery up to ten times, so the same
+     * mailcore retries a failed delivery up to ten times, so the same
      * event really does arrive more than once.
      */
     async isEventProcessed(eventId: string): Promise<boolean> {
@@ -64,7 +64,7 @@ export function createEventsRepository({ db }: { db: Database }) {
       const rows = await db
         .select()
         .from(mailboxes)
-        .where(eq(mailboxes.emailengineId, emailEngineId))
+        .where(eq(mailboxes.mailcoreAccountId, emailEngineId))
         .limit(1);
       return rows[0] ?? null;
     },

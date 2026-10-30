@@ -30,6 +30,17 @@ function key(): Buffer {
   return cachedKey;
 }
 
+/**
+ * The vault key, for anything that needs to sign or verify with it.
+ *
+ * The same key that encrypts the OAuth tokens also signs the unsubscribe
+ * tokens: deriving one key from the other means there is one secret to keep,
+ * not two. It never leaves this process.
+ */
+export function secretKey(): Buffer {
+  return key();
+}
+
 /** Encrypt a token. The nonce is stored with the ciphertext. */
 export function seal(plaintext: string): string {
   if (!plaintext) return "";

@@ -14,7 +14,7 @@ export function createScheduledReplyRepository({ db }: { db: Database }) {
         .select({
           conversation: conversations,
           mailboxEmail: mailboxes.email,
-          mailboxEmailEngineId: mailboxes.emailengineId,
+          mailboxEmailEngineId: mailboxes.mailcoreAccountId,
         })
         .from(conversations)
         .innerJoin(mailboxes, eq(mailboxes.id, conversations.mailboxId))

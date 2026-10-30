@@ -3,23 +3,24 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import type { AppContext } from "@/app";
 import type { Logger } from "@/core/logger";
+import { raiseAlert } from "@/lib/alerts";
 import type { EventsService } from "./service";
-import type { EmailEngineEvent } from "./types";
+import type { MailcoreEvent } from "./types";
 
 export interface EventsControllerDeps {
   service: EventsService;
   log: Logger;
   /**
-   * The EmailEngine `serviceSecret`. When set, the request signature is
+   * The mailcore `serviceSecret`. When set, the request signature is
    * verified; when unset, the endpoint accepts anything. Verification is
-   * only optional because a self-hosted EmailEngine behind a private network
+   * only optional because a self-hosted mailcore behind a private network
    * is a legitimate deployment.
    */
   secret?: string;
 }
 
 /**
- * Verifies EmailEngine's HMAC-SHA256 signature over the raw body.
+ * Verifies mailcore's HMAC-SHA256 signature over the raw body.
  *
  * The signature travels in `X-EE-Wh-Signature` and is base64url encoded.
  * The comparison is constant-time so the check cannot be used as an oracle.
@@ -42,9 +43,9 @@ export function verifySignature(
 }
 
 /**
- * The EmailEngine webhook receiver.
+ * The mailcore webhook receiver.
  *
- * EmailEngine retries a failed delivery up to ten times, so the handler is
+ * mailcore retries a failed delivery up to ten times, so the handler is
  * written to be safe to run twice. It acknowledges before it does the work:
  * a slow handler turns one event into ten deliveries.
  */
@@ -64,9 +65,9 @@ export function createEventsController(deps: EventsControllerDeps) {
       }
     }
 
-    let event: EmailEngineEvent;
+    let event: MailcoreEvent;
     try {
-      event = JSON.parse(rawBody) as EmailEngineEvent;
+      event = JSON.parse(rawBody) as MailcoreEvent;
     } catch {
       log.warn("webhook body was not valid JSON");
       return c.json({ ok: false, error: "invalid json" }, 400);
@@ -81,10 +82,21 @@ export function createEventsController(deps: EventsControllerDeps) {
     try {
       await service.handle(event, eventId);
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+
       log.error("webhook processing failed", {
         eventId,
         event: event.event ?? null,
-        error: error instanceof Error ? error.message : String(error),
+        error: detail,
+      });
+
+      void raiseAlert({
+        key: "worker.webhook_processing_failed",
+        title: "A mail gateway webhook could not be processed",
+        message: detail,
+        severity: "error",
+        service: "worker",
+        context: { eventId, event: event.event ?? null, error: detail },
       });
     }
 

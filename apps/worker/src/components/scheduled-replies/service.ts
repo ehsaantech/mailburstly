@@ -1,8 +1,9 @@
 import type { Logger } from "@/core/logger";
+import { raiseAlert } from "@/lib/alerts";
 import {
   createEmailEngineClient,
-  type EmailEngineClient,
-} from "@/lib/emailengine";
+  type MailcoreClient,
+} from "@/lib/mailcore";
 import {
   createScheduledReplyRepository,
   type ScheduledReplyRepository,
@@ -11,7 +12,7 @@ import {
 export interface ScheduledReplyServiceDeps {
   db: { db: Parameters<typeof createScheduledReplyRepository>[0]["db"] };
   log: Logger;
-  emailEngine: { baseUrl: string; apiKey: string; timeoutMs?: number };
+  mailcore: { baseUrl: string; apiKey: string; timeoutMs?: number };
 }
 
 /** The draft the operator scheduled, as stored on the conversation. */
@@ -27,10 +28,10 @@ export function createScheduledReplyService(deps: ScheduledReplyServiceDeps) {
   });
   const { log } = deps;
 
-  const client: EmailEngineClient = createEmailEngineClient({
-    baseUrl: deps.emailEngine.baseUrl,
-    apiKey: deps.emailEngine.apiKey,
-    timeoutMs: deps.emailEngine.timeoutMs ?? 20_000,
+  const client: MailcoreClient = createEmailEngineClient({
+    baseUrl: deps.mailcore.baseUrl,
+    apiKey: deps.mailcore.apiKey,
+    timeoutMs: deps.mailcore.timeoutMs ?? 20_000,
   });
 
   return {
@@ -114,9 +115,28 @@ export function createScheduledReplyService(deps: ScheduledReplyServiceDeps) {
             to: row.conversation.contactEmail,
           });
         } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+
           log.error("scheduled reply failed", {
             conversationId: row.conversation.id,
-            error: error instanceof Error ? error.message : String(error),
+            error: detail,
+          });
+
+          // The draft is dropped either way, so this reply is never going
+          // out. The operator needs to know: they scheduled it, and it is
+          // gone.
+          void raiseAlert({
+            key: "worker.scheduled_reply_failed",
+            title: "A scheduled reply could not be sent",
+            message: detail,
+            severity: "error",
+            service: "worker",
+            context: {
+              conversationId: row.conversation.id,
+              to: row.conversation.contactEmail,
+              mailbox: row.mailboxEmail,
+              error: detail,
+            },
           });
         } finally {
           await repo.clearScheduled(row.conversation.id);

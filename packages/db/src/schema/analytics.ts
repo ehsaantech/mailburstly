@@ -188,7 +188,7 @@ export const apiKeys = pgTable(
  * What we sent, keyed by the provider's Message-ID.
  *
  * This is the join key for everything that comes back later: a bounce, a
- * complaint, an unsubscribe. EmailEngine does not use VERP, so the Message-ID
+ * complaint, an unsubscribe. mailcore does not use VERP, so the Message-ID
  * is the only reliable link between a send and its consequences. Without this
  * table a bounce cannot be attributed to a lead.
  */
@@ -197,7 +197,7 @@ export const sentMessages = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     workspaceId: uuid("workspace_id").notNull(),
-    /** The Message-ID EmailEngine knows the message by. */
+    /** The Message-ID mailcore knows the message by. */
     messageId: text("message_id").notNull(),
     /** The Message-ID we submitted, when the provider rewrote it. */
     originalMessageId: text("original_message_id"),
@@ -233,7 +233,7 @@ export const sentMessages = pgTable(
 /**
  * Webhook events that have already been processed.
  *
- * EmailEngine retries a failed delivery up to ten times, and the same event
+ * mailcore retries a failed delivery up to ten times, and the same event
  * can arrive twice for unrelated reasons. Every handler is written to be
  * idempotent, but recording the event id makes a repeat a no-op instead of
  * repeated work.

@@ -33,7 +33,7 @@ const (
 type Mailbox struct {
 	ID            string
 	Email         string
-	EmailEngineID string
+	MailcoreID string
 	Status        MailboxStatus
 	DailyCap      int
 	HealthScore   float64
@@ -54,9 +54,9 @@ type SendJob struct {
 	// Resolved at claim time by joining campaign_leads → leads → steps →
 	// campaigns → mailboxes.
 	//
-	// EmailEngineAccountID is the id of the account inside EmailEngine — NOT
+	// MailcoreAccountID is the id of the account inside mailcore — NOT
 	// our own mailbox id. The two differ, and sending to the wrong one fails.
-	EmailEngineAccountID string
+	MailcoreAccountID string
 	LastSendAt           *time.Time
 	// LastMailboxSendAt is the last time THIS MAILBOX sent anything. The
 	// min-gap is a per-mailbox reputation signal, so it must not be derived
@@ -110,8 +110,8 @@ type DailyStats struct {
 	Errors     int
 }
 
-// EmailEngineAccount is the subset of the EmailEngine account response we need.
-type EmailEngineAccount struct {
+// MailcoreAccount is the subset of the mailcore account response we need.
+type MailcoreAccount struct {
 	Account string `json:"account"`
 	Email   string `json:"email"`
 	Name    string `json:"name"`
@@ -119,7 +119,7 @@ type EmailEngineAccount struct {
 	Type    string `json:"type"`
 }
 
-// SendResult is what EmailEngine returns after a submission.
+// SendResult is what mailcore returns after a submission.
 type SendResult struct {
 	MessageID string `json:"messageId"`
 	QueueID   string `json:"queueId"`

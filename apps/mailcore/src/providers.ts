@@ -5,7 +5,7 @@
  * interface, so the rest of mailcore does not care whether a message came
  * from the Gmail API, Microsoft Graph, or an IMAP server.
  *
- * The libraries here are the same MIT ones EmailEngine is built on:
+ * The libraries here are the same MIT ones mailcore is built on:
  * `imapflow` (IMAP), `nodemailer` (SMTP), `mailparser` (MIME). Nothing here
  * re-implements a mail protocol.
  */
@@ -229,7 +229,7 @@ interface ParsedAddress {
 }
 
 /* -------------------------------------------------------------------------- */
-/* IMAP (imapflow — the engine behind EmailEngine)                           */
+/* IMAP (imapflow — the engine behind mailcore)                           */
 /* -------------------------------------------------------------------------- */
 
 export function parseServerSettings(

@@ -8,9 +8,9 @@ import { api, USE_MOCKS } from "@/lib/api";
 /**
  * Callback page for the hosted OAuth flow.
  *
- * EmailEngine redirects the browser here with `?account=...&state=new|existing`
+ * mailcore redirects the browser here with `?account=...&state=new|existing`
  * after a successful consent. We forward those params to the api, which fetches
- * the account from EmailEngine, creates (or updates) our mailbox row, and
+ * the account from mailcore, creates (or updates) our mailbox row, and
  * computes an initial health score.
  */
 export function MailboxCallbackPage() {
@@ -25,7 +25,7 @@ export function MailboxCallbackPage() {
   useEffect(() => {
     if (!account) {
       setStatus("error");
-      setMessage("EmailEngine did not return an account id. Try connecting again.");
+      setMessage("The mail server did not return an account id. Try connecting again.");
       return;
     }
 

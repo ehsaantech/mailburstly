@@ -347,7 +347,97 @@ docker/
 | `/lists` | Lists | Reusable contact collections: create, rename, duplicate, delete, add and remove members, attach to a campaign |
 | `/mailboxes` | Mailboxes | Per-inbox health, quota consumption, tag filter, error surfacing |
 | `/analytics` | Analytics | The funnel, daily chart, campaign table, per-mailbox metrics, activity log with filters, CSV export, auto-pause rules |
-| `/settings` | Settings | Workspace, sending defaults, **the reply-classification model**, AI, verification, team |
+| `/settings` | Settings | Workspace, sending defaults, **the reply-classification model**, AI, verification, **alert recipients**, team |
+
+## Alerting
+
+When something breaks — above all when the system fails to send an email —
+an alert goes to the addresses in the `alert_recipients` table.
+
+Resend is the transport, and deliberately so: it is a completely separate
+provider from the mail gateway we send campaigns through, so the alert still
+goes out when the gateway is the thing that broke.
+
+### Who gets told
+
+The recipient list lives in the database, not in the environment:
+
+```sql
+SELECT email, name, severity, enabled FROM alert_recipients;
+```
+
+| Column | Meaning |
+|---|---|
+| `email` | The address. Unique per workspace. |
+| `name` | An optional label, so the dashboard can say who this is. |
+| `severity` | The **lowest** severity this address wants: `warning` means "tell me everything", `error` means "only when it is broken". |
+| `enabled` | Soft off, so an address can be paused without losing its row. |
+
+Manage it in the dashboard under **Settings → Alert recipients**, or through
+the api:
+
+```
+GET    /api/alert-recipients
+POST   /api/alert-recipients            { email, name?, severity?, enabled? }
+PATCH  /api/alert-recipients/:id        { name?, severity?, enabled? }
+DELETE /api/alert-recipients/:id
+POST   /api/alert-recipients/:id/test   send a test alert to this address
+```
+
+`bun run db:seed` creates the first one (`ALERT_RECIPIENTS`, comma
+separated) so a fresh database is not silent.
+
+An **error** reaches every recipient; a **warning** only reaches the ones
+that asked for warnings.
+
+### What raises an alert
+
+| Component | Alert |
+|---|---|
+| Dispatcher | a campaign email could not be sent · jobs could not be claimed · a failure could not be recorded · Postgres unreachable |
+| Worker | a scheduled reply could not be sent · the mail gateway reported a delivery failure (`messageFailed` / `messageDeliveryError`) · the scheduler tick, aggregation, subsequence or auto-pause run failed · a webhook could not be processed · the health check failed |
+| Api | the mail gateway could not be reached or refused a request · a reply or test send failed · an unhandled error · Postgres unreachable |
+
+The delivery-failure webhook matters most: it used to be acknowledged and
+dropped, which meant a mailbox whose credentials had expired sent nothing
+and said nothing at all.
+
+Each alert carries a key — `dispatcher.submit_failed`,
+`worker.message_failed`, `api.reply_send_failed` — which is what the
+deduplication counts and what you will see in the logs.
+
+### Not a mail flood
+
+- **One email per kind of failure per cooldown** (5 minutes by default). A
+  campaign that fails five hundred times produces one email.
+- The next email says how many were folded into it ("this happened 4 more
+  times"), so a collapse never hides a storm.
+- A hard cap of 20 alert emails an hour, across every kind of failure.
+- The alerter never throws into the code that raised it, and a failed alert
+  is logged rather than alerted about.
+
+### Configuration
+
+```
+RESEND_API_KEY=          the Resend api key; empty disables alerting
+ALERT_FROM_EMAIL=        the verified sender, e.g. alerts@mail.ehsaanlabs.com
+ALERT_ENABLED=           false mutes alerting without removing the key
+ALERT_COOLDOWN_MS=       300000 — how long one kind of failure stays quiet
+ALERT_MAX_PER_HOUR=      20 — the flood ceiling
+```
+
+The key must be scoped to the sending domain, or Resend refuses to send from
+it.
+
+### Checking it
+
+```
+bun run verify:alerts             # sends a real alert through Resend
+bun run verify:alert-recipients   # the api: list, add, update, test, remove
+```
+
+Both send to `haroon@yopmail.com` by default (`TEST_RECIPIENT` overrides it) —
+the sanctioned sink for a test send. The live recipient list is never touched.
 
 ## Swapping mocks for the real API
 

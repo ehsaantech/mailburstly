@@ -1,6 +1,7 @@
 import { badRequest, notFound } from "@/core/errors";
 import type { DbHandle } from "@/db";
-import { submitMessage } from "@/lib/emailengine";
+import { submitMessage } from "@/lib/mailcore";
+import { raiseAlert } from "@/lib/alerts";
 import { chat, stripFence, SUGGEST_SYSTEM_PROMPT } from "@/lib/llm";
 import { createInboxRepository } from "./repository";
 import type {
@@ -114,14 +115,28 @@ export function createInboxService(deps: InboxServiceDeps) {
           inReplyTo: parent?.providerMessageId ?? undefined,
         });
       } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+
+        // The reply did not go out. That is exactly the kind of failure
+        // worth an email: the operator believes they answered the lead.
+        void raiseAlert({
+          key: "api.reply_send_failed",
+          title: "A reply could not be sent",
+          message: detail,
+          severity: "error",
+          service: "api",
+          context: {
+            conversationId: id,
+            to: row.contactEmail,
+            mailbox: row.mailboxEmail,
+            error: detail,
+          },
+        });
+
         // A transport failure is a bad request from the operator's point of
         // view — the mailbox may be disconnected, or the address rejected.
         // A 500 would hide the reason.
-        throw badRequest(
-          `The reply could not be sent: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+        throw badRequest(`The reply could not be sent: ${detail}`);
       }
 
       await repository.insertMessage({

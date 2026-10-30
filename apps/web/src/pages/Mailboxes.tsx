@@ -123,7 +123,7 @@ export function MailboxesPage() {
           displayName: displayName.trim() || undefined,
         },
       );
-      // Single-use URL from EmailEngine; redirect the browser to it.
+      // Single-use URL from mailcore; redirect the browser to it.
       window.location.href = result.data.url;
     } catch (error) {
       setConnectError(
@@ -390,7 +390,7 @@ export function MailboxesPage() {
         open={connectOpen}
         onClose={() => setConnectOpen(false)}
         title="Connect a mailbox"
-        description="Mail Burstly delegates OAuth to EmailEngine, which handles the consent flow and token refresh."
+        description="Mail Burstly delegates OAuth to its own mail gateway, which handles the consent flow and token refresh."
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setConnectOpen(false)}>
@@ -495,7 +495,7 @@ export function MailboxesPage() {
           ) : null}
 
           <p className="text-[11px] text-fg-subtle">
-            You'll be redirected to EmailEngine's hosted auth form, then to
+            You'll be redirected to the consent screen, then to
             Google or Microsoft to grant consent. The connection is verified
             before the mailbox appears here.
           </p>

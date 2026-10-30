@@ -67,7 +67,7 @@ export const workspaces = pgTable("workspaces", {
     .defaultNow(),
 });
 
-/** Sending mailboxes. `emailengineId` mirrors the account in EmailEngine. */
+/** Sending mailboxes. `mailcoreAccountId` mirrors the account in mailcore. */
 export const mailboxes = pgTable(
   "mailboxes",
   {
@@ -79,7 +79,7 @@ export const mailboxes = pgTable(
     displayName: text("display_name"),
     provider: mailboxProviderEnum("provider").notNull(),
     status: mailboxStatusEnum("status").notNull().default("connected"),
-    emailengineId: text("emailengine_id").notNull(),
+    mailcoreAccountId: text("mailcore_account_id").notNull(),
     /** Per-mailbox daily cap on campaign emails. Hard ceiling is 50. */
     dailyCap: integer("daily_cap").notNull().default(30),
     /** 0–100, derived from bounce/error/open/reply rates. Below 40 → degraded. */

@@ -1,15 +1,15 @@
 /**
- * A minimal EmailEngine client for the worker.
+ * A minimal mailcore client for the worker.
  *
- * The worker needs exactly two things from EmailEngine: send a message, and
+ * The worker needs exactly two things from mailcore: send a message, and
  * know which account to send it from. The api has a fuller client, but the
  * two run in different processes and share nothing but the wire format.
  *
- * `account` is EmailEngine's account id — the same string we store in
- * `mailboxes.emailengine_id` — not our own mailbox id.
+ * `account` is mailcore's account id — the same string we store in
+ * `mailboxes.mailcore_account_id` — not our own mailbox id.
  */
 
-export interface EmailEngineConfig {
+export interface MailcoreConfig {
   baseUrl: string;
   apiKey: string;
   timeoutMs: number;
@@ -20,7 +20,7 @@ export interface SubmitResult {
   queueId?: string;
 }
 
-export function createEmailEngineClient(config: EmailEngineConfig) {
+export function createEmailEngineClient(config: MailcoreConfig) {
   const base = config.baseUrl.replace(/\/$/, "");
 
   async function post<T>(path: string, payload: unknown): Promise<T> {
@@ -41,7 +41,7 @@ export function createEmailEngineClient(config: EmailEngineConfig) {
       const text = await res.text();
       if (!res.ok) {
         throw new Error(
-          `EmailEngine ${path} returned ${res.status}: ${text.slice(0, 300)}`,
+          `mailcore ${path} returned ${res.status}: ${text.slice(0, 300)}`,
         );
       }
 
@@ -55,7 +55,7 @@ export function createEmailEngineClient(config: EmailEngineConfig) {
     /**
      * Sends a message.
      *
-     * `to` is an array of address objects, not a string — EmailEngine
+     * `to` is an array of address objects, not a string — mailcore
      * rejects the string form.
      */
     async submit(
@@ -66,7 +66,7 @@ export function createEmailEngineClient(config: EmailEngineConfig) {
         html?: string;
         text?: string;
         /**
-         * The id of the message being replied to: EmailEngine's own id
+         * The id of the message being replied to: mailcore's own id
          * for a message it delivered, or an RFC Message-ID for one we
          * sent.
          */
@@ -80,9 +80,9 @@ export function createEmailEngineClient(config: EmailEngineConfig) {
       if (input.html) payload.html = input.html;
       if (input.text) payload.text = input.text;
 
-      // EmailEngine's submit payload has no `inReplyTo` field — sending
+      // mailcore's submit payload has no `inReplyTo` field — sending
       // one fails the whole request with 400 "Invalid input". A reply is
-      // threaded through `reference` instead: EmailEngine fills in the
+      // threaded through `reference` instead: mailcore fills in the
       // In-Reply-To and References headers from the message it names.
       const parentId = input.inReplyTo?.trim();
       if (parentId) {
@@ -92,7 +92,7 @@ export function createEmailEngineClient(config: EmailEngineConfig) {
           payload.reference = {
             message: parentId,
             action: "reply",
-            // A parent EmailEngine can no longer find must not stop the
+            // A parent mailcore can no longer find must not stop the
             // reply from going out; it goes out unthreaded instead.
             ignoreMissing: true,
           };
@@ -109,4 +109,4 @@ export function createEmailEngineClient(config: EmailEngineConfig) {
   };
 }
 
-export type EmailEngineClient = ReturnType<typeof createEmailEngineClient>;
+export type MailcoreClient = ReturnType<typeof createEmailEngineClient>;

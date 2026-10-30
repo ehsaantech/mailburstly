@@ -1,11 +1,11 @@
 /**
- * Registers the Outlook (Microsoft 365) OAuth2 application with EmailEngine.
+ * Registers the Outlook (Microsoft 365) OAuth2 application with mailcore.
  *
  * Microsoft hands out no client id and secret on its own — an app registration
  * in the Entra admin center does — and the redirect URI registered there has
- * to be the one EmailEngine sends the browser back to. This script takes those
- * credentials, registers the app with EmailEngine, and writes the app id
- * EmailEngine returns into .env as MICROSOFT_OAUTH_APP_ID.
+ * to be the one mailcore sends the browser back to. This script takes those
+ * credentials, registers the app with mailcore, and writes the app id
+ * mailcore returns into .env as MICROSOFT_OAUTH_APP_ID.
  *
  *   bun run scripts/setup-microsoft-oauth.ts
  *   bun run scripts/setup-microsoft-oauth.ts --dry-run
@@ -121,7 +121,7 @@ function upsertEnvValue(text: string, key: string, value: string): string {
 }
 
 /* -------------------------------------------------------------------------- */
-/* EmailEngine api                                                            */
+/* mailcore api                                                            */
 /* -------------------------------------------------------------------------- */
 
 interface OAuth2App {
@@ -164,8 +164,8 @@ async function apiRequest<T>(
     const message =
       typeof payload === "object" && payload && "message" in payload
         ? String((payload as { message: unknown }).message)
-        : `EmailEngine returned ${response.status}`;
-    throw new Error(`EmailEngine ${method} ${path} failed: ${message}`);
+        : `mailcore returned ${response.status}`;
+    throw new Error(`mailcore ${method} ${path} failed: ${message}`);
   }
 
   return payload as T;
@@ -180,7 +180,7 @@ async function main(): Promise<void> {
 
   if (args.help) {
     console.log(`
-Registers the Outlook OAuth2 app with EmailEngine and writes
+Registers the Outlook OAuth2 app with mailcore and writes
 MICROSOFT_OAUTH_APP_ID into .env.
 
   --client-id       Entra application (client) id
@@ -188,10 +188,10 @@ MICROSOFT_OAUTH_APP_ID into .env.
   --authority       Microsoft tenant (default: common)
   --base-scopes     imap | api (default: imap)
                     "imap" works anywhere but polls; "api" uses Microsoft
-                    Graph and needs EmailEngine on a public HTTPS URL
+                    Graph and needs mailcore on a public HTTPS URL
   --redirect-url    Must match the redirect URI in Entra
-                    (default: <EMAILENGINE_PUBLIC_URL>/oauth)
-  --name            Display name in EmailEngine (default: Microsoft OAuth2)
+                    (default: <MAILCORE_PUBLIC_URL>/oauth)
+  --name            Display name in mailcore (default: Microsoft OAuth2)
   --dry-run         Show what would be sent, change nothing
 `);
     return;
@@ -213,9 +213,9 @@ MICROSOFT_OAUTH_APP_ID into .env.
     process.exit(1);
   }
 
-  const emailEngineUrl = env("EMAILENGINE_PUBLIC_URL") ?? "http://localhost:3003";
-  const emailEngineApiUrl = env("EMAILENGINE_API_URL") ?? emailEngineUrl;
-  const token = env("EMAILENGINE_API_TOKEN") ?? env("EMAILENGINE_SECRET") ?? "";
+  const emailEngineUrl = env("MAILCORE_PUBLIC_URL") ?? "http://localhost:3003";
+  const emailEngineApiUrl = env("MAILCORE_API_URL") ?? emailEngineUrl;
+  const token = env("MAILCORE_API_TOKEN") ?? env("MAILCORE_API_SECRET") ?? "";
 
   const options: Options = {
     clientId,
@@ -232,8 +232,8 @@ MICROSOFT_OAUTH_APP_ID into .env.
 
   if (!token) {
     console.error(
-      "EMAILENGINE_API_TOKEN is not set. Issue one with:\n" +
-        "  docker exec mailrung-emailengine-1 node /emailengine/bin/emailengine.js tokens issue -d \"mailrung\" -s \"*\" --dbs.redis=\"redis://redis:6379\"",
+      "MAILCORE_API_TOKEN is not set. Issue one with:\n" +
+        "  docker exec mailrung-mailcore-1 node /mailcore/bin/mailcore.js tokens issue -d \"mailrung\" -s \"*\" --dbs.redis=\"redis://redis:6379\"",
     );
     process.exit(1);
   }
@@ -250,7 +250,7 @@ MICROSOFT_OAUTH_APP_ID into .env.
     redirectUrl: options.redirectUrl,
   };
 
-  console.log("Registering the Outlook OAuth2 app with EmailEngine:");
+  console.log("Registering the Outlook OAuth2 app with mailcore:");
   console.log(`  api            ${emailEngineApiUrl}`);
   console.log(`  provider       outlook`);
   console.log(`  client id      ${options.clientId}`);
@@ -265,7 +265,7 @@ MICROSOFT_OAUTH_APP_ID into .env.
   }
 
   // An Outlook app that already exists is updated in place. Two Outlook apps
-  // would both show up in EmailEngine's provider picker, and picking the
+  // would both show up in mailcore's provider picker, and picking the
   // wrong one fails in a way that looks like a Microsoft problem.
   const listing = await apiRequest<{ apps: OAuth2App[] }>(
     "GET",

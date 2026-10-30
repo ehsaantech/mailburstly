@@ -16,8 +16,9 @@ import {
   providerFromAccountType,
   submitMessage,
   verifyAccount,
-} from "@/lib/emailengine";
+} from "@/lib/mailcore";
 import { env } from "@/env";
+import { raiseAlert } from "@/lib/alerts";
 
 export interface MailboxServiceDeps {
   db: DbHandle;
@@ -56,7 +57,7 @@ export function createMailboxService(deps: MailboxServiceDeps) {
     /**
      * Creating a mailbox via this route registers a hand-rolled SMTP/IMAP
      * account. The OAuth flows land in their own commit and will call into
-     * EmailEngine to mint `emailengineId`; until then it is a placeholder.
+     * mailcore to mint `mailcoreAccountId`; until then it is a placeholder.
      */
     async create(input: CreateMailboxInput): Promise<MailboxSummary> {
       const wsId = await workspaceId();
@@ -87,7 +88,7 @@ export function createMailboxService(deps: MailboxServiceDeps) {
             email: input.email.toLowerCase(),
             displayName: input.displayName ?? null,
             provider: "imap_smtp",
-            emailengineId: accountId,
+            mailcoreAccountId: accountId,
             dailyCap: input.dailyCap,
             tags: input.tags,
           });
@@ -107,7 +108,7 @@ export function createMailboxService(deps: MailboxServiceDeps) {
           email: input.email.toLowerCase(),
           displayName: input.displayName ?? null,
           provider: input.provider,
-          emailengineId: "pending",
+          mailcoreAccountId: "pending",
           dailyCap: input.dailyCap,
           tags: input.tags,
         });
@@ -135,23 +136,16 @@ export function createMailboxService(deps: MailboxServiceDeps) {
     },
 
     /**
-     * Start a hosted OAuth flow via EmailEngine.
+     * Start a hosted OAuth flow via mailcore.
      *
-     * We generate our own UUID up front and reuse it as EmailEngine's
+     * We generate our own UUID up front and reuse it as mailcore's
      * account id, so the two systems always agree on who owns a mailbox.
      * Nothing is persisted yet — the mailbox row is created in `callback`,
      * once the user has actually consented. Abandoned flows simply expire
-     * (EmailEngine's form URLs are single-use and valid for 24h).
+     * (mailcore's form URLs are single-use and valid for 24h).
      */
     async connect(input: ConnectMailboxInput): Promise<ConnectResult> {
       const accountId = crypto.randomUUID();
-
-      const oauthAppId =
-        input.provider === "google"
-          ? env.GOOGLE_OAUTH_APP_ID
-          : input.provider === "microsoft"
-            ? env.MICROSOFT_OAUTH_APP_ID
-            : "";
 
       const redirectUrl = `${env.PUBLIC_URL}/mailboxes/callback`;
 
@@ -161,7 +155,6 @@ export function createMailboxService(deps: MailboxServiceDeps) {
         expectedEmail: input.email,
         name: input.displayName,
         provider: input.provider,
-        type: oauthAppId || undefined,
         redirectUrl,
       });
 
@@ -171,8 +164,8 @@ export function createMailboxService(deps: MailboxServiceDeps) {
     /**
      * Finalise a hosted auth flow.
      *
-     * EmailEngine redirects to our frontend with `?account=...&state=new`,
-     * which forwards the params here. We fetch the account from EmailEngine,
+     * mailcore redirects to our frontend with `?account=...&state=new`,
+     * which forwards the params here. We fetch the account from mailcore,
      * create (or update) our mailbox row, and compute an initial health score
      * from the connection state.
      */
@@ -208,7 +201,7 @@ export function createMailboxService(deps: MailboxServiceDeps) {
           email: account.email.toLowerCase(),
           displayName: account.name ?? null,
           provider,
-          emailengineId: input.account,
+          mailcoreAccountId: input.account,
           dailyCap: 30,
           tags: [],
         });
@@ -234,13 +227,29 @@ export function createMailboxService(deps: MailboxServiceDeps) {
       input: { to: string; subject: string; text?: string; html?: string },
     ): Promise<{ messageId: string; queueId?: string }> {
       const current = await requireRow(await workspaceId(), id);
-      const result = await submitMessage(current.emailengineId, {
-        to: input.to,
-        subject: input.subject,
-        text: input.text,
-        html: input.html,
-      });
-      return result;
+
+      try {
+        const result = await submitMessage(current.mailcoreAccountId, {
+          to: input.to,
+          subject: input.subject,
+          text: input.text,
+          html: input.html,
+        });
+        return result;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+
+        void raiseAlert({
+          key: "api.mailbox_test_send_failed",
+          title: "A mailbox test send failed",
+          message: detail,
+          severity: "error",
+          service: "api",
+          context: { mailbox: current.email, to: input.to, error: detail },
+        });
+
+        throw error;
+      }
     },
   };
 }
@@ -254,9 +263,9 @@ export interface ConnectMailboxInput {
 }
 
 export interface ConnectResult {
-  /** EmailEngine hosted auth URL. Redirect the browser here. */
+  /** mailcore hosted auth URL. Redirect the browser here. */
   url: string;
-  /** Our account id, reused as EmailEngine's account id. */
+  /** Our account id, reused as mailcore's account id. */
   accountId: string;
 }
 

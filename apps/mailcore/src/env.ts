@@ -31,7 +31,7 @@ const schema = z.object({
   /** Where the worker wants its mail events. */
   MAILCORE_WEBHOOK_URL: z
     .string()
-    .default("http://worker:3002/webhooks/emailengine"),
+    .default("http://worker:3002/webhooks/mailcore"),
 
   /** HMAC key the worker verifies `X-EE-Wh-Signature` with. */
   MAILCORE_WEBHOOK_SECRET: z.string().default(""),
@@ -51,12 +51,6 @@ const schema = z.object({
   /** How many days of history the first sync imports. */
   MAILCORE_INITIAL_SYNC_DAYS: z.coerce.number().int().min(1).max(90).default(14),
 
-  /**
-   * The engine mailcore replaces, while mailboxes connected before the
-   * cutover still live there. Empty disables the fallback.
-   */
-  MAILCORE_LEGACY_URL: z.string().default(""),
-  MAILCORE_LEGACY_TOKEN: z.string().default(""),
 });
 
 const parsed = schema.safeParse(process.env);

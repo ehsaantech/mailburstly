@@ -192,7 +192,7 @@ func TestClaimDuePopulatesTemplateFields(t *testing.T) {
 	if j.CustomVariables["industry"] != "SaaS" {
 		t.Fatalf("custom variables = %v", j.CustomVariables)
 	}
-	if j.EmailEngineAccountID == "" {
-		t.Fatal("emailengine account id must be populated")
+	if j.MailcoreAccountID == "" {
+		t.Fatal("mailcore account id must be populated")
 	}
 }

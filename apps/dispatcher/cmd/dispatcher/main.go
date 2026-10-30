@@ -10,13 +10,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mailrung/dispatcher/internal/alerts"
 	"github.com/mailrung/dispatcher/internal/config"
 	"github.com/mailrung/dispatcher/internal/db"
 	"github.com/mailrung/dispatcher/internal/pacing"
 	"github.com/mailrung/dispatcher/internal/render"
 	"github.com/mailrung/dispatcher/internal/sender"
 	"github.com/mailrung/dispatcher/internal/server"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mailrung/dispatcher/internal/store"
 	"github.com/mailrung/dispatcher/internal/types"
 )
@@ -43,10 +44,25 @@ func main() {
 		DefaultMailboxCap:   cfg.DefaultMailboxCap,
 		HardMailboxCap:      cfg.HardMailboxCap,
 	}
-	emailEngine := sender.New(cfg.EmailEngineURL, cfg.EmailEngineSecret)
+	mailcore := sender.New(cfg.MailcoreURL, cfg.MailcoreSecret)
+
+	// Alerting. The recipients live in the database; the key and the sender
+	// come from the environment.
+	alerter := alerts.New(alerts.Config{
+		APIKey:     cfg.ResendAPIKey,
+		From:       cfg.AlertFrom,
+		Enabled:    cfg.AlertEnabled,
+		Cooldown:   cfg.AlertCooldown,
+		MaxPerHour: cfg.AlertMaxPerHour,
+	}, pool.Pool)
 
 	srv := server.New(func() (map[string]any, error) {
 		if err := pool.Ping(ctx); err != nil {
+			alerter.Alert(ctx, "", "dispatcher.db_unreachable",
+				"The dispatcher cannot reach Postgres",
+				"The dispatcher could not claim or record jobs. No campaign email is being sent.",
+				alerts.SeverityError,
+				map[string]string{"error": err.Error()})
 			return map[string]any{"status": "error", "checks": map[string]string{"database": "error"}}, err
 		}
 		return map[string]any{"status": "ok", "checks": map[string]string{"database": "ok"}}, nil
@@ -69,7 +85,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				runDispatchCycle(ctx, pool.Pool, jobStore, mailboxStore, pacer, emailEngine, cfg)
+				runDispatchCycle(ctx, pool.Pool, jobStore, mailboxStore, pacer, mailcore, alerter, cfg)
 			case <-ctx.Done():
 				return
 			}
@@ -89,7 +105,8 @@ func runDispatchCycle(
 	jobs *store.JobStore,
 	mailboxes *store.MailboxStore,
 	pacer *pacing.Pacer,
-	ee *sender.EmailEngineClient,
+	ee *sender.MailcoreClient,
+	alerter *alerts.Alerter,
 	cfg config.Config,
 ) {
 	log.Printf("dispatch cycle tick")
@@ -105,6 +122,11 @@ func runDispatchCycle(
 	claimed, err := jobs.ClaimDue(ctx, cfg.BatchSize)
 	if err != nil {
 		log.Printf("claim due: %v", err)
+		alerter.Alert(ctx, "", "dispatcher.claim_failed",
+			"The dispatcher could not claim any work",
+			"Postgres did not answer the claim query. No campaign email is being sent.",
+			alerts.SeverityError,
+			map[string]string{"error": err.Error()})
 		return
 	}
 	if len(claimed) == 0 {
@@ -184,12 +206,32 @@ func runDispatchCycle(
 			renderedSubject = render.Render(*job.StepSubject, sender.BuildRenderData(&job), render.Options{EnableSpintax: true})
 		}
 
-		// Submit to EmailEngine.
+		// Submit to mailcore.
 		result, err := ee.SubmitMessage(&job)
 		if err != nil {
 			log.Printf("submit %s: %v", job.ID, err)
+
+			// The email did not go out. This is the failure the operator
+			// most needs to hear about, so it gets an email of its own.
+			alerter.Alert(ctx, job.WorkspaceID, "dispatcher.submit_failed",
+				"A campaign email could not be sent",
+				"The mail gateway refused the message: "+err.Error(),
+				alerts.SeverityError,
+				map[string]string{
+					"job":       job.ID,
+					"campaign":  job.CampaignName,
+					"mailbox":   job.MailboxID,
+					"recipient": job.LeadEmail,
+					"error":     err.Error(),
+				})
+
 			if err := jobs.MarkFailed(ctx, job.ID, err.Error()); err != nil {
 				log.Printf("mark failed %s: %v", job.ID, err)
+				alerter.Alert(ctx, job.WorkspaceID, "dispatcher.mark_failed",
+					"The dispatcher could not record a failed send",
+					"A campaign email failed and the failure could not be written to the database.",
+					alerts.SeverityError,
+					map[string]string{"job": job.ID, "error": err.Error()})
 			}
 			continue
 		}

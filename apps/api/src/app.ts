@@ -11,6 +11,7 @@ import type { Logger } from "@/core/logger";
 import type { DbHandle } from "@/db";
 import type { ApiErrorBody } from "@mailrung/shared";
 import { allowedOrigins } from "@/env";
+import { raiseAlert } from "@/lib/alerts";
 
 /** Route prefix. The web client and the edge proxy both assume it. */
 export const API_PREFIX = "/api";
@@ -70,7 +71,7 @@ function isErrorStatus(status: number): status is ErrorStatus {
  * It is a **liveness** probe on purpose: a readiness check that flaps 503 when
  * Postgres is briefly unreachable turns a cold start into a restart loop,
  * which makes any incident worse. Readiness lives on `/api/health`, where the
- * router reports database *and* EmailEngine checks.
+ * router reports database *and* mailcore checks.
  */
 function createLivenessRoute(db: DbHandle, log: Logger) {
   return async function liveness(c: Context<AppBindings>) {
@@ -79,6 +80,15 @@ function createLivenessRoute(db: DbHandle, log: Logger) {
       return c.json({ status: "ok", version: "0.1.0", uptime: process.uptime() }, 200);
     } catch (error) {
       log.error("liveness: cannot reach postgres", { error: String(error) });
+      void raiseAlert({
+        key: "api.database_unreachable",
+        title: "The api cannot reach Postgres",
+        message:
+          "The liveness probe failed: the database did not answer. The api is serving requests it cannot complete.",
+        severity: "error",
+        service: "api",
+        context: { error: error instanceof Error ? error.message : String(error) },
+      });
       return c.json({ status: "error", version: "0.1.0" }, 503);
     }
   };
@@ -117,10 +127,23 @@ export function createApp(options: { log: Logger; db: DbHandle }) {
 
   app.onError((error, c) => {
     const requestId = c.get("requestId") ?? "";
+    const path = new URL(c.req.url).pathname;
 
     if (error instanceof AppError) {
       if (error.status >= 500) {
         log.error(error.message, { requestId, status: error.status });
+
+        // 501 is a route that was never built, not a break.
+        if (error.status !== 501) {
+          void raiseAlert({
+            key: "api.server_error",
+            title: "The api returned a server error",
+            message: error.message,
+            severity: "error",
+            service: "api",
+            context: { requestId, path, code: error.code },
+          });
+        }
       }
 
       const status = isErrorStatus(error.status) ? error.status : 500;
@@ -144,6 +167,20 @@ export function createApp(options: { log: Logger; db: DbHandle }) {
       name: error instanceof Error ? error.name : typeof error,
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
+    });
+
+    void raiseAlert({
+      key: "api.unhandled_error",
+      title: "The api hit an unhandled error",
+      message: error instanceof Error ? error.message : String(error),
+      severity: "error",
+      service: "api",
+      context: {
+        requestId,
+        path,
+        name: error instanceof Error ? error.name : typeof error,
+        stack: error instanceof Error ? (error.stack ?? "").slice(0, 2000) : undefined,
+      },
     });
 
     return c.json(errorBody(500, requestId), 500);

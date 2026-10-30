@@ -11,9 +11,9 @@
 
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
-import { workspaces, users, leadLabels } from "./schema";
+import { workspaces, users, leadLabels, alertRecipients } from "./schema";
 import { DEFAULT_WORKSPACE_SETTINGS } from "@mailrung/shared";
 
 const DATABASE_URL =
@@ -27,6 +27,17 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "change-me-admin-password";
 const ADMIN_NAME = process.env.ADMIN_NAME ?? "Admin";
 const WORKSPACE_NAME = process.env.WORKSPACE_NAME ?? "Mailrung";
 const WORKSPACE_TIMEZONE = process.env.WORKSPACE_TIMEZONE ?? "UTC";
+
+/**
+ * Who gets told when something breaks.
+ *
+ * Comma separated. The default is the operator's own address; add another
+ * with ALERT_RECIPIENTS="a@example.com,b@example.com".
+ */
+const ALERT_RECIPIENTS = (process.env.ALERT_RECIPIENTS ?? "haroon@ehsaantech.com")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 
 const sql = postgres(DATABASE_URL, {
   idle_timeout: 5,
@@ -130,9 +141,37 @@ try {
     console.log(`created admin "${ADMIN_EMAIL}" (${created.id})`);
   }
 
+  /* Alert recipients: idempotent on (workspace, email). */
+  for (const email of ALERT_RECIPIENTS) {
+    const [existing] = await db
+      .select({ id: alertRecipients.id })
+      .from(alertRecipients)
+      .where(
+        and(
+          eq(alertRecipients.workspaceId, workspaceId),
+          eq(alertRecipients.email, email),
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      console.log(`alert recipient "${email}" already exists`);
+      continue;
+    }
+
+    await db.insert(alertRecipients).values({
+      workspaceId,
+      email,
+      severity: "error",
+      enabled: true,
+    });
+    console.log(`created alert recipient "${email}"`);
+  }
+
   console.log("\nseed complete");
   console.log(`  workspace: ${workspaceId}`);
   console.log(`  admin:     ${ADMIN_EMAIL}`);
+  console.log(`  alerts:    ${ALERT_RECIPIENTS.join(", ") || "(none)"}`);
 } catch (error) {
   console.error("seed failed");
   console.error(error);

@@ -17,7 +17,7 @@ export interface MailboxRow {
   displayName: string | null;
   provider: MailboxProvider;
   status: MailboxStatus;
-  emailengineId: string;
+  mailcoreAccountId: string;
   dailyCap: number;
   healthScore: number;
   tags: string[];
@@ -34,7 +34,7 @@ const columns = {
   displayName: mailboxes.displayName,
   provider: mailboxes.provider,
   status: mailboxes.status,
-  emailengineId: mailboxes.emailengineId,
+  mailcoreAccountId: mailboxes.mailcoreAccountId,
   dailyCap: mailboxes.dailyCap,
   healthScore: mailboxes.healthScore,
   tags: mailboxes.tags,
@@ -73,11 +73,11 @@ export function createMailboxRepository({ db }: { db: Database }) {
       return rows[0] ?? null;
     },
 
-    async byEmailengineId(emailengineId: string): Promise<MailboxRow | null> {
+    async byEmailengineId(mailcoreAccountId: string): Promise<MailboxRow | null> {
       const rows = await db
         .select(columns)
         .from(mailboxes)
-        .where(eq(mailboxes.emailengineId, emailengineId))
+        .where(eq(mailboxes.mailcoreAccountId, mailcoreAccountId))
         .limit(1) as MailboxRow[];
       return rows[0] ?? null;
     },
@@ -87,7 +87,7 @@ export function createMailboxRepository({ db }: { db: Database }) {
       email: string;
       displayName: string | null;
       provider: MailboxProvider;
-      emailengineId: string;
+      mailcoreAccountId: string;
       dailyCap: number;
       tags: string[];
     }): Promise<MailboxRow> {

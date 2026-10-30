@@ -31,6 +31,8 @@ import { createSettingsService } from "@/components/settings/service";
 import { createSettingsRoutes } from "@/components/settings/controller";
 import { createListService } from "@/components/lists/service";
 import { createListRoutes } from "@/components/lists/controller";
+import { createAlertRecipientsService } from "@/components/alert-recipients/service";
+import { createAlertRecipientRoutes } from "@/components/alert-recipients/controller";
 import { createApiKeyAuth } from "@/middleware/api-key";
 
 /**
@@ -82,6 +84,12 @@ export function createRootRouter(db: DbHandle, log: Logger) {
 
   const listService = createListService({ db, workspaceId });
 
+  const alertRecipientsService = createAlertRecipientsService({
+    db,
+    log,
+    workspaceId,
+  });
+
   const settingsService = createSettingsService({
     db,
     llmBaseUrl: env.LLM_BASE_URL,
@@ -92,13 +100,13 @@ export function createRootRouter(db: DbHandle, log: Logger) {
   /* --------------------------------- ready --------------------------------- */
 
   /**
-   * Readiness probe: reports Postgres and EmailEngine. Mounted under /api (not
+   * Readiness probe: reports Postgres and mailcore. Mounted under /api (not
    * /health, which is liveness for the container) so an orchestrator can gate
    * traffic before the app is actually able to serve.
    */
   app.get("/health", async (c) => {
     let database: "ok" | "error" = "error";
-    let emailengine: "ok" | "error" | "skipped" = "skipped";
+    let mailcore: "ok" | "error" | "skipped" = "skipped";
 
     try {
       await db.ping();
@@ -107,32 +115,32 @@ export function createRootRouter(db: DbHandle, log: Logger) {
       log.error("readiness: cannot reach postgres", { error: String(error) });
     }
 
-    if (env.EMAILENGINE_API_TOKEN) {
+    if (env.MAILCORE_API_TOKEN) {
       try {
         const res = await fetch(
-          `${env.EMAILENGINE_API_URL.replace(/\/$/, "")}/v1/accounts`,
+          `${env.MAILCORE_API_URL.replace(/\/$/, "")}/v1/accounts`,
           {
             headers: {
-              Authorization: `Bearer ${env.EMAILENGINE_API_TOKEN}`,
+              Authorization: `Bearer ${env.MAILCORE_API_TOKEN}`,
             },
           },
         );
-        emailengine = res.ok ? "ok" : "error";
+        mailcore = res.ok ? "ok" : "error";
       } catch (error) {
-        log.warn("readiness: cannot reach emailengine", { error: String(error) });
-        emailengine = "error";
+        log.warn("readiness: cannot reach mailcore", { error: String(error) });
+        mailcore = "error";
       }
     } else {
-      emailengine = "skipped";
+      mailcore = "skipped";
     }
 
-    const status = database === "ok" && emailengine !== "error" ? "ok" : "error";
+    const status = database === "ok" && mailcore !== "error" ? "ok" : "error";
     return c.json(
       {
         status,
         version: "0.1.0",
         nodeEnv: env.NODE_ENV,
-        checks: { database, emailengine },
+        checks: { database, mailcore },
       },
       (status === "ok" ? 200 : 503) as 200 | 503,
     );
@@ -163,6 +171,10 @@ export function createRootRouter(db: DbHandle, log: Logger) {
   );
   app.route("/settings", createSettingsRoutes(settingsService, requireAuth));
   app.route("/lists", createListRoutes(listService, requireAuth));
+  app.route(
+    "/alert-recipients",
+    createAlertRecipientRoutes(alertRecipientsService, requireAuth),
+  );
 
   /**
    * The public api. Keyed by an api key rather than a session, so another

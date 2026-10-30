@@ -1,6 +1,20 @@
 import { z } from "zod";
 
 /**
+ * A boolean that reads the way an operator writes it.
+ *
+ * `z.coerce.boolean()` is wrong here: it turns the string "false" into
+ * `true`, because any non-empty string is truthy.
+ */
+const booleanish = z
+  .union([z.boolean(), z.string()])
+  .transform((value) =>
+    typeof value === "boolean"
+      ? value
+      : ["1", "true", "yes", "on"].includes(value.trim().toLowerCase()),
+  );
+
+/**
  * Environment, validated once at boot.
  *
  * Every value needs a sane local default so `bun run dev` works with no .env
@@ -32,25 +46,14 @@ const schema = z.object({
 
   PUBLIC_URL: z.string().default("http://localhost:8080"),
 
-  EMAILENGINE_API_URL: z.string().default("http://localhost:3003"),
-  EMAILENGINE_SECRET: z.string().default(""),
+  /** Where the mail gateway lives. */
+  MAILCORE_API_URL: z.string().default("http://localhost:3004"),
 
   /**
-   * EmailEngine API token (from `emailengine tokens issue`). Used as the
-   * Bearer token for all EmailEngine REST API calls. Falls back to
-   * EMAILENGINE_SECRET for backward compat, but the secret is for the admin
-   * UI session, not the API.
+   * The mail gateway's API token. It is the Bearer token for every call to
+   * mailcore, so it has to match the token the gateway itself expects.
    */
-  EMAILENGINE_API_TOKEN: z.string().default(""),
-
-  /**
-   * EmailEngine's internal OAuth2 application IDs (from EmailEngine's
-   * Integrations > OAuth2 Apps). These are NOT the Google/Microsoft client
-   * ids — they are EmailEngine's own IDs for the OAuth apps you configured
-   * in its admin UI. Leave blank to show the provider selection screen.
-   */
-  GOOGLE_OAUTH_APP_ID: z.string().default(""),
-  MICROSOFT_OAUTH_APP_ID: z.string().default(""),
+  MAILCORE_API_TOKEN: z.string().default(""),
 
   /**
    * The base url of the model api. Ollama's cloud is "https://ollama.com";
@@ -78,6 +81,23 @@ const schema = z.object({
    */
   LLM_API_KEY: z.string().default(""),
   LLM_MODEL: z.string().default("gpt-oss:20b"),
+
+  /**
+   * Alerting.
+   *
+   * The recipients live in the database (`alert_recipients`), not here —
+   * this only decides whether alerts can be sent at all, and from where.
+   *
+   * Resend is used deliberately: it is a separate provider from the mail
+   * gateway, so an alert still goes out when the gateway is what broke.
+   */
+  RESEND_API_KEY: z.string().default(""),
+  ALERT_FROM_EMAIL: z.string().default("alerts@mail.ehsaanlabs.com"),
+  ALERT_ENABLED: booleanish.default(true),
+  /** How long the same kind of failure stays quiet before it is mailed again. */
+  ALERT_COOLDOWN_MS: z.coerce.number().int().min(1000).max(3_600_000).default(300_000),
+  /** Hard cap on alert emails per hour. */
+  ALERT_MAX_PER_HOUR: z.coerce.number().int().min(1).max(200).default(20),
 });
 
 const DEV_SECRET = "dev-only-session-secret-please-replace-with-32-plus-bytes";

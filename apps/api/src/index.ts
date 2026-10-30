@@ -10,10 +10,23 @@ import { createApp } from "./app";
 import { createLogger } from "./core/logger";
 import { createDb } from "./db";
 import { env } from "./env";
+import { initAlerter } from "./lib/alerts";
+import { createWorkspaceRepository } from "./components/workspace/repository";
 
 const log = createLogger(env.LOG_LEVEL, { service: "api", env: env.NODE_ENV });
 
 const db = createDb(env.DATABASE_URL, { max: 20 });
+
+/**
+ * Alerting is wired before the app is built, so a failure during the first
+ * request already has somewhere to go.
+ */
+const workspaceRepository = createWorkspaceRepository({ db: db.db });
+initAlerter({
+  db,
+  log,
+  workspaceId: async () => (await workspaceRepository.primary()).id,
+});
 
 const app = createApp({ log, db });
 

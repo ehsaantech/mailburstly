@@ -150,7 +150,7 @@ export function createCampaignRepository({ db }: { db: Database }) {
         .select({
           id: mailboxes.id,
           email: mailboxes.email,
-          emailengineId: mailboxes.emailengineId,
+          mailcoreAccountId: mailboxes.mailcoreAccountId,
         })
         .from(mailboxes)
         .where(eq(mailboxes.id, id))
@@ -164,7 +164,7 @@ export function createCampaignRepository({ db }: { db: Database }) {
         .select({
           id: mailboxes.id,
           email: mailboxes.email,
-          emailengineId: mailboxes.emailengineId,
+          mailcoreAccountId: mailboxes.mailcoreAccountId,
         })
         .from(mailboxes)
         .where(eq(mailboxes.status, "connected"))

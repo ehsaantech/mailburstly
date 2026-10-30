@@ -310,7 +310,9 @@ export async function dueEvents(limit = 50): Promise<EventRow[]> {
 }
 
 export async function markDelivered(id: string): Promise<void> {
-  await sql`UPDATE mail_events SET delivered_at = now() WHERE id = ${id}`;
+  // The error is cleared too: a row that finally landed must not keep the
+  // last failure in its history.
+  await sql`UPDATE mail_events SET delivered_at = now(), last_error = NULL WHERE id = ${id}`;
 }
 
 export async function markFailed(

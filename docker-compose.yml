@@ -26,12 +26,10 @@ x-app-env: &app-env
   WORKSPACE_TIMEZONE: ${WORKSPACE_TIMEZONE:-UTC}
   SESSION_SECRET: ${SESSION_SECRET}
   PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
-  EMAILENGINE_API_URL: ${EMAILENGINE_API_URL:-http://mailcore:3004}
-  EMAILENGINE_PUBLIC_URL: ${EMAILENGINE_PUBLIC_URL:-http://localhost:3003}
-  EMAILENGINE_SECRET: ${EMAILENGINE_SECRET}
-  EMAILENGINE_WEBHOOK_SECRET: ${EMAILENGINE_WEBHOOK_SECRET}
-  WORKER_WEBHOOK_URL: ${WORKER_WEBHOOK_URL:-http://worker:3002/webhooks/emailengine}
-  EMAILENGINE_SERVICE_SECRET: ${EMAILENGINE_SERVICE_SECRET:-}
+  MAILCORE_API_URL: ${MAILCORE_API_URL:-http://mailcore:3004}
+  MAILCORE_PUBLIC_URL: ${MAILCORE_PUBLIC_URL:-${PUBLIC_URL:-http://localhost:8080}}
+  WORKER_WEBHOOK_URL: ${WORKER_WEBHOOK_URL:-http://worker:3002/webhooks/mailcore}
+  MAILCORE_WEBHOOK_SECRET: ${MAILCORE_WEBHOOK_SECRET:-}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
   MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
@@ -55,10 +53,16 @@ x-app-env: &app-env
   DEFAULT_RANDOM_JITTER_SECONDS: ${DEFAULT_RANDOM_JITTER_SECONDS:-300}
   DEFAULT_MAILBOX_DAILY_CAP: ${DEFAULT_MAILBOX_DAILY_CAP:-30}
   HARD_MAILBOX_DAILY_CAP: ${HARD_MAILBOX_DAILY_CAP:-50}
+  # Alerting. The recipients live in the database; this only decides whether
+  # an alert can be sent, and from where.
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  ALERT_FROM_EMAIL: ${ALERT_FROM_EMAIL:-alerts@mail.ehsaanlabs.com}
+  ALERT_ENABLED: ${ALERT_ENABLED:-true}
+  ALERT_COOLDOWN_MS: ${ALERT_COOLDOWN_MS:-300000}
+  ALERT_MAX_PER_HOUR: ${ALERT_MAX_PER_HOUR:-20}
 
 services:
-  # Postgres, with two databases: `mailrung` (ours) and `emailengine`
-  # (EmailEngine's own). The init script creates the second on first boot.
+  # Postgres. One database, `mailrung` — ours.
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
@@ -95,38 +99,6 @@ services:
       timeout: 3s
       retries: 20
 
-  # Owns all mail-protocol work: OAuth2 flows, token refresh, IMAP, SMTP.
-  emailengine:
-    image: postalsys/emailengine:latest
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      NODE_ENV: ${NODE_ENV:-production}
-      PORT: 3000
-      # EmailEngine binds to 127.0.0.1 by default, which makes it unreachable
-      # from the api/worker containers and breaks the IPv4 healthcheck.
-      EENGINE_HOST: 0.0.0.0
-      EPUBLIC_URL: ${EMAILENGINE_PUBLIC_URL:-http://localhost:3003}
-      EHOST_URL: ${EMAILENGINE_PUBLIC_URL:-http://localhost:3003}
-      EENGINE_REDIS: redis://redis:6379
-      DATABASE_TYPE: postgres
-      DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/emailengine
-      SECRET: ${EMAILENGINE_SECRET}
-      WEBHOOK_SECRET: ${EMAILENGINE_WEBHOOK_SECRET}
-    ports:
-      - "3003:3000"
-    volumes:
-      - emailengine:/emailengine
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   # Mailcore — the mail gateway. It replaces EmailEngine: OAuth2, IMAP/SMTP,
   # the Gmail API and Microsoft Graph, tracking, and the webhook events the
   # worker consumes.
@@ -143,20 +115,12 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
       MAILCORE_PORT: ${MAILCORE_PORT:-3004}
       MAILCORE_PUBLIC_URL: ${MAILCORE_PUBLIC_URL:-${PUBLIC_URL:-http://localhost:8080}}
-      MAILCORE_API_TOKEN: ${MAILCORE_API_TOKEN:-${EMAILENGINE_API_TOKEN:-}}
-      MAILCORE_WEBHOOK_URL: ${WORKER_WEBHOOK_URL:-http://worker:3002/webhooks/emailengine}
-      MAILCORE_WEBHOOK_SECRET: ${MAILCORE_WEBHOOK_SECRET:-${EMAILENGINE_SERVICE_SECRET:-}}
+      MAILCORE_API_TOKEN: ${MAILCORE_API_TOKEN:-}
+      MAILCORE_WEBHOOK_URL: ${WORKER_WEBHOOK_URL:-http://worker:3002/webhooks/mailcore}
+      MAILCORE_WEBHOOK_SECRET: ${MAILCORE_WEBHOOK_SECRET:-}
       MAILCORE_ENCRYPTION_KEY: ${MAILCORE_ENCRYPTION_KEY:-}
       MAILCORE_SYNC_INTERVAL: ${MAILCORE_SYNC_INTERVAL:-30}
       MAILCORE_INITIAL_SYNC_DAYS: ${MAILCORE_INITIAL_SYNC_DAYS:-14}
-      # The engine mailcore replaces. Mailboxes connected before the cutover
-      # are still connected there, with their tokens in its vault: requests
-      # for accounts mailcore does not own are forwarded to it, so those
-      # mailboxes keep sending until they are re-consented through mailcore.
-      # Unset (and remove the emailengine service) once every mailbox has
-      # been re-consented.
-      MAILCORE_LEGACY_URL: ${MAILCORE_LEGACY_URL:-http://emailengine:3000}
-      MAILCORE_LEGACY_TOKEN: ${MAILCORE_LEGACY_TOKEN:-${EMAILENGINE_API_TOKEN:-}}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
@@ -185,8 +149,8 @@ services:
     environment:
       <<: *app-env
       API_PORT: ${API_PORT:-3001}
-      EMAILENGINE_API_URL: http://mailcore:3004
-      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
+      MAILCORE_API_URL: http://mailcore:3004
+      MAILCORE_API_TOKEN: ${MAILCORE_API_TOKEN:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
       REDIS_URL: redis://redis:6379
     ports:
@@ -211,8 +175,8 @@ services:
         condition: service_healthy
     environment:
       <<: *app-env
-      EMAILENGINE_API_URL: http://mailcore:3004
-      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
+      MAILCORE_API_URL: http://mailcore:3004
+      MAILCORE_API_TOKEN: ${MAILCORE_API_TOKEN:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
       REDIS_URL: redis://redis:6379
     ports:
@@ -237,9 +201,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-mailrung}:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/${POSTGRES_DB:-mailrung}
-      EMAILENGINE_API_URL: http://mailcore:3004
-      EMAILENGINE_API_TOKEN: ${EMAILENGINE_API_TOKEN:-}
-      EMAILENGINE_SECRET: ${EMAILENGINE_SECRET}
+      MAILCORE_API_URL: http://mailcore:3004
+      MAILCORE_API_TOKEN: ${MAILCORE_API_TOKEN:-}
       DISPATCHER_PORT: ${DISPATCHER_PORT:-8090}
       DISPATCHER_POLL_INTERVAL_MS: ${DISPATCHER_POLL_INTERVAL_MS:-2000}
       DISPATCHER_BATCH_SIZE: ${DISPATCHER_BATCH_SIZE:-500}
@@ -250,6 +213,13 @@ services:
       DEFAULT_RANDOM_JITTER_SECONDS: ${DEFAULT_RANDOM_JITTER_SECONDS:-0}
       DEFAULT_MAILBOX_DAILY_CAP: ${DEFAULT_MAILBOX_DAILY_CAP:-30}
       HARD_MAILBOX_DAILY_CAP: ${HARD_MAILBOX_DAILY_CAP:-50}
+      # Alerting. The recipients live in the database; this only decides
+      # whether an alert can be sent, and from where.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      ALERT_FROM_EMAIL: ${ALERT_FROM_EMAIL:-alerts@mail.ehsaanlabs.com}
+      ALERT_ENABLED: ${ALERT_ENABLED:-true}
+      ALERT_COOLDOWN_MS: ${ALERT_COOLDOWN_MS:-300000}
+      ALERT_MAX_PER_HOUR: ${ALERT_MAX_PER_HOUR:-20}
     ports:
       - "8090:8090"
     healthcheck:
@@ -300,6 +270,5 @@ services:
 volumes:
   pgdata:
   redisdata:
-  emailengine:
   caddydata:
   caddyconfig:

@@ -1,8 +1,8 @@
 /**
- * Exercises the EmailEngine event pipeline end to end.
+ * Exercises the mailcore event pipeline end to end.
  *
  * Each case signs its payload with the service secret, POSTs it to the
- * worker exactly as EmailEngine would, and then asserts what landed in the
+ * worker exactly as mailcore would, and then asserts what landed in the
  * database. Run it with the stack up:
  *
  *   bun run scripts/verify-events.ts
@@ -14,18 +14,18 @@ const WORKER_URL =
   process.env.WORKER_WEBHOOK_URL?.replace(
     "worker:3002",
     "localhost:3002",
-  ) ?? "http://localhost:3002/webhooks/emailengine";
+  ) ?? "http://localhost:3002/webhooks/mailcore";
 
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
-const secret = process.env.EMAILENGINE_SERVICE_SECRET ?? "";
+const secret = process.env.MAILCORE_WEBHOOK_SECRET ?? "";
 const databaseUrl =
   process.env.DATABASE_URL ??
   "postgres://mailrung:change-me-postgres@localhost:5433/mailrung";
 
 if (!secret) {
   console.error(
-    "EMAILENGINE_SERVICE_SECRET is not set — copy it out of .env first.",
+    "MAILCORE_WEBHOOK_SECRET is not set — copy it out of .env first.",
   );
   process.exit(1);
 }
@@ -50,7 +50,7 @@ function check(label: string, condition: boolean, detail?: unknown) {
   }
 }
 
-/** POST a payload the way EmailEngine would: signed, with an event id. */
+/** POST a payload the way mailcore would: signed, with an event id. */
 async function postEvent(
   event: Record<string, unknown>,
   eventId: string,
@@ -88,10 +88,10 @@ async function main() {
   const account = "aitchkhan@gmail.com";
 
   const mailbox = await sql`
-    SELECT id, email FROM mailboxes WHERE emailengine_id = ${account} LIMIT 1
+    SELECT id, email FROM mailboxes WHERE mailcore_account_id = ${account} LIMIT 1
   `;
   if (mailbox.length === 0) {
-    console.error(`No mailbox with emailengine_id = ${account}`);
+    console.error(`No mailbox with mailcore_account_id = ${account}`);
     process.exit(1);
   }
   const mailboxId = mailbox[0]!.id as string;

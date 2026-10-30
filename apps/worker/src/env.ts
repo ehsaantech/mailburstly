@@ -1,22 +1,34 @@
 import { z } from "zod";
 
+/**
+ * A boolean that reads the way an operator writes it.
+ *
+ * `z.coerce.boolean()` is wrong here: it turns the string "false" into
+ * `true`, because any non-empty string is truthy.
+ */
+const booleanish = z
+  .union([z.boolean(), z.string()])
+  .transform((value) =>
+    typeof value === "boolean"
+      ? value
+      : ["1", "true", "yes", "on"].includes(value.trim().toLowerCase()),
+  );
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   WORKER_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
   DATABASE_URL: z.string().default("postgres://mailrung:change-me-postgres@localhost:5433/mailrung"),
   REDIS_URL: z.string().default("redis://localhost:6380"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
-  EMAILENGINE_API_URL: z.string().default("http://localhost:3003"),
-  EMAILENGINE_API_TOKEN: z.string().default(""),
-  EMAILENGINE_SECRET: z.string().default(""),
-  EMAILENGINE_WEBHOOK_SECRET: z.string().default("change-me-webhook-secret"),
+  MAILCORE_API_URL: z.string().default("http://localhost:3003"),
+  MAILCORE_API_TOKEN: z.string().default(""),
   /**
-   * EmailEngine's `serviceSecret` setting. Webhooks are signed with
+   * mailcore's `serviceSecret` setting. Webhooks are signed with
    * HMAC-SHA256 over the raw body using this value, and the header
    * `X-EE-Wh-Signature` carries the result.
    */
-  EMAILENGINE_SERVICE_SECRET: z.string().default(""),
-  WORKER_WEBHOOK_URL: z.string().default("http://worker:3002/webhooks/emailengine"),
+  MAILCORE_WEBHOOK_SECRET: z.string().default(""),
+  WORKER_WEBHOOK_URL: z.string().default("http://worker:3002/webhooks/mailcore"),
   LLM_PROVIDER: z.enum(["ollama", "anthropic", "openai"]).default("ollama"),
   LLM_API_KEY: z.string().default(""),
   /**
@@ -45,6 +57,22 @@ const schema = z.object({
   AGGREGATION_INTERVAL_MS: z.coerce.number().int().min(10_000).default(300_000),
   /** How often due subsequence steps are queued for sending. */
   SUBSEQUENCE_TICK_MS: z.coerce.number().int().min(5_000).default(30_000),
+  /**
+   * Alerting.
+   *
+   * The recipients live in the database (`alert_recipients`), not here —
+   * this only decides whether alerts can be sent at all, and from where.
+   *
+   * Resend is used deliberately: it is a separate provider from the mail
+   * gateway, so an alert still goes out when the gateway is what broke.
+   */
+  RESEND_API_KEY: z.string().default(""),
+  ALERT_FROM_EMAIL: z.string().default("alerts@mail.ehsaanlabs.com"),
+  ALERT_ENABLED: booleanish.default(true),
+  /** How long the same kind of failure stays quiet before it is mailed again. */
+  ALERT_COOLDOWN_MS: z.coerce.number().int().min(1000).max(3_600_000).default(300_000),
+  /** Hard cap on alert emails per hour. */
+  ALERT_MAX_PER_HOUR: z.coerce.number().int().min(1).max(200).default(20),
 });
 
 const parsed = schema.safeParse(process.env);

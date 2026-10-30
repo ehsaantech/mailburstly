@@ -28,6 +28,8 @@
     "verify:llm": "bun run scripts/verify-llm.ts",
     "verify:inbox": "bun run scripts/verify-inbox.ts",
     "verify:worker": "bun run scripts/verify-worker.ts",
+    "verify:alerts": "bun run scripts/verify-alerts.ts",
+    "verify:alert-recipients": "bun run scripts/verify-alert-recipients.ts",
     "verify:m5": "bun run scripts/verify-m5.ts",
     "verify:editor": "bun run scripts/verify-editor.ts",
     "verify:lists": "bun run scripts/verify-lists.ts",

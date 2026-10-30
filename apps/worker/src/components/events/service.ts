@@ -1,4 +1,5 @@
 import type { Logger } from "@/core/logger";
+import { raiseAlert } from "@/lib/alerts";
 import {
   buildSnippet,
   extractKeyword,
@@ -17,10 +18,10 @@ import type {
 import { createEventsRepository, type EventsRepository } from "./repository";
 import {
   WEBHOOK_EVENTS,
-  type EmailEngineBounceData,
-  type EmailEngineEvent,
-  type EmailEngineMessageData,
-  type EmailEngineTrackData,
+  type MailcoreBounceData,
+  type MailcoreEvent,
+  type MailcoreMessageData,
+  type MailcoreTrackData,
 } from "./types";
 
 export interface EventsServiceDeps {
@@ -153,8 +154,8 @@ export function createEventsService(deps: EventsServiceDeps) {
   /* Handlers                                                            */
   /* ------------------------------------------------------------------ */
 
-  const handleMessageNew = async (event: EmailEngineEvent) => {
-    const data = (event.data ?? {}) as EmailEngineMessageData;
+  const handleMessageNew = async (event: MailcoreEvent) => {
+    const data = (event.data ?? {}) as MailcoreMessageData;
     const account = event.account;
     if (!account) return;
 
@@ -433,8 +434,43 @@ export function createEventsService(deps: EventsServiceDeps) {
 
   /* ------------------------------------------------------------------ */
 
-  const handleBounce = async (event: EmailEngineEvent) => {
-    const data = (event.data ?? {}) as EmailEngineBounceData;
+  /**
+   * A send that did not go out.
+   *
+   * mailcore reports these as `messageFailed` and
+   * `messageDeliveryError`. They used to be acknowledged and dropped, which
+   * meant a mailbox whose credentials had expired sent nothing and said
+   * nothing at all. Now they raise an alert: the operator's own address is
+   * the one inbox that still works when the mail gateway does not.
+   */
+  const handleDeliveryFailure = async (event: MailcoreEvent) => {
+    const data = (event.data ?? {}) as MailcoreBounceData;
+
+    const reason =
+      data.response?.message ??
+      data.response?.status ??
+      "The mail gateway could not deliver the message.";
+
+    void raiseAlert({
+      key: "worker.message_failed",
+      title: "The mail gateway could not deliver a message",
+      message: reason,
+      severity: "error",
+      service: "worker",
+      context: {
+        account: event.account ?? null,
+        recipient: data.recipient ?? null,
+        messageId: data.messageId ?? null,
+        status: data.response?.status ?? null,
+        event: event.event ?? null,
+      },
+    });
+  };
+
+  /* ------------------------------------------------------------------ */
+
+  const handleBounce = async (event: MailcoreEvent) => {
+    const data = (event.data ?? {}) as MailcoreBounceData;
     const account = event.account;
     if (!account) return;
 
@@ -451,7 +487,7 @@ export function createEventsService(deps: EventsServiceDeps) {
     const code = data.response?.status ?? null;
 
     // Correlate back to what we sent. The Message-ID is the only join key
-    // EmailEngine gives us.
+    // mailcore gives us.
     const sent = data.messageId
       ? await repo.sentMessageById(data.messageId)
       : null;
@@ -528,8 +564,8 @@ export function createEventsService(deps: EventsServiceDeps) {
 
   /* ------------------------------------------------------------------ */
 
-  const handleComplaint = async (event: EmailEngineEvent) => {
-    const data = (event.data ?? {}) as EmailEngineBounceData;
+  const handleComplaint = async (event: MailcoreEvent) => {
+    const data = (event.data ?? {}) as MailcoreBounceData;
     const workspaceId = await repo.workspaceId();
     if (!workspaceId) return;
 
@@ -561,10 +597,10 @@ export function createEventsService(deps: EventsServiceDeps) {
   /* ------------------------------------------------------------------ */
 
   const handleTracking = async (
-    event: EmailEngineEvent,
+    event: MailcoreEvent,
     eventName: string,
   ) => {
-    const data = (event.data ?? {}) as EmailEngineTrackData;
+    const data = (event.data ?? {}) as MailcoreTrackData;
     const workspaceId = await repo.workspaceId();
     if (!workspaceId) return;
 
@@ -591,7 +627,7 @@ export function createEventsService(deps: EventsServiceDeps) {
 
   /* ------------------------------------------------------------------ */
 
-  const handleListUnsubscribe = async (event: EmailEngineEvent) => {
+  const handleListUnsubscribe = async (event: MailcoreEvent) => {
     const data = (event.data ?? {}) as { recipient?: string };
     const workspaceId = await repo.workspaceId();
     if (!workspaceId) return;
@@ -657,13 +693,13 @@ export function createEventsService(deps: EventsServiceDeps) {
 
   return {
     /**
-     * Handles one EmailEngine event.
+     * Handles one mailcore event.
      *
      * Every handler is idempotent: a redelivered event must not double-count
      * a reply or double-blocklist an address.
      */
     async handle(
-      event: EmailEngineEvent,
+      event: MailcoreEvent,
       eventId: string | null,
     ): Promise<void> {
       const name = event.event;
@@ -696,6 +732,11 @@ export function createEventsService(deps: EventsServiceDeps) {
         case WEBHOOK_EVENTS.messageSent:
           // The dispatcher already recorded the send and its Message-ID, so
           // there is nothing to add here. Acknowledged so the queue drains.
+          break;
+        case WEBHOOK_EVENTS.messageFailed:
+        case WEBHOOK_EVENTS.messageDeliveryError:
+          // The gateway could not deliver. Worth an email.
+          await handleDeliveryFailure(event);
           break;
         default:
           log.debug("ignoring webhook event", { event: name });

@@ -13,10 +13,24 @@ import { createClassificationService } from "@/components/classification/service
 import { createAutoPauseService } from "@/components/auto-pause/service";
 import { createScheduledReplyService } from "@/components/scheduled-replies/service";
 import { workspaces } from "@mailrung/db";
+import { initAlerter, raiseAlert } from "@/lib/alerts";
 
 const log = createLogger(env.LOG_LEVEL, { service: "worker", env: env.NODE_ENV });
 
 const db = getDatabase(env.DATABASE_URL, 20);
+
+/**
+ * Alerting is wired before anything else, so a failure in the first tick
+ * already has somewhere to go.
+ */
+initAlerter({
+  db,
+  log,
+  workspaceId: async () => {
+    const rows = await db.db.select().from(workspaces).limit(1);
+    return rows[0]?.id ?? "";
+  },
+});
 
 const handle = createQueueHandle(env.REDIS_URL, log);
 
@@ -78,7 +92,7 @@ const eventsService = createEventsService({
 const eventsController = createEventsController({
   service: eventsService,
   log,
-  secret: env.EMAILENGINE_SERVICE_SECRET,
+  secret: env.MAILCORE_WEBHOOK_SECRET,
 });
 
 // Scheduler tick: every SCHEDULER_TICK_MS, compute due steps.
@@ -87,6 +101,15 @@ const tickInterval = setInterval(async () => {
     await scheduler.tick();
   } catch (error) {
     log.error("scheduler tick failed", { error: String(error) });
+    void raiseAlert({
+      key: "worker.scheduler_tick_failed",
+      title: "The scheduler tick failed",
+      message:
+        "The worker could not work out what is due. Campaigns may be sending late.",
+      severity: "error",
+      service: "worker",
+      context: { error: error instanceof Error ? error.message : String(error) },
+    });
   }
 
   await runHousekeeping();
@@ -99,9 +122,9 @@ const autoPause = createAutoPauseService({ db, log });
 const scheduledReplies = createScheduledReplyService({
   db,
   log,
-  emailEngine: {
-    baseUrl: env.EMAILENGINE_API_URL,
-    apiKey: env.EMAILENGINE_API_TOKEN,
+  mailcore: {
+    baseUrl: env.MAILCORE_API_URL,
+    apiKey: env.MAILCORE_API_TOKEN,
   },
 });
 
@@ -111,6 +134,15 @@ const runSubsequences = async () => {
     await subsequenceService.run();
   } catch (error) {
     log.error("subsequence run failed", { error: String(error) });
+    void raiseAlert({
+      key: "worker.subsequence_failed",
+      title: "A follow-up sequence failed to run",
+      message:
+        "The worker could not queue the follow-up emails that were due. Leads may miss their next step.",
+      severity: "error",
+      service: "worker",
+      context: { error: error instanceof Error ? error.message : String(error) },
+    });
   }
 };
 
@@ -126,12 +158,30 @@ const runHousekeeping = async () => {
     await autoPause.run();
   } catch (error) {
     log.error("auto-pause run failed", { error: String(error) });
+    void raiseAlert({
+      key: "worker.auto_pause_failed",
+      title: "The auto-pause check failed",
+      message:
+        "The worker could not check campaign health. A campaign that should have been paused may still be sending.",
+      severity: "warning",
+      service: "worker",
+      context: { error: error instanceof Error ? error.message : String(error) },
+    });
   }
 
   try {
     await scheduledReplies.run();
   } catch (error) {
     log.error("scheduled replies run failed", { error: String(error) });
+    void raiseAlert({
+      key: "worker.scheduled_replies_failed",
+      title: "The scheduled replies run failed",
+      message:
+        "The worker could not send the replies that were queued for later. Those replies are still waiting.",
+      severity: "error",
+      service: "worker",
+      context: { error: error instanceof Error ? error.message : String(error) },
+    });
   }
 };
 
@@ -150,6 +200,15 @@ const aggregate = async () => {
     await aggregation.run();
   } catch (error) {
     log.error("aggregation failed", { error: String(error) });
+    void raiseAlert({
+      key: "worker.aggregation_failed",
+      title: "The statistics rollup failed",
+      message:
+        "The worker could not roll the activity log up into daily statistics. The dashboard numbers may be stale.",
+      severity: "warning",
+      service: "worker",
+      context: { error: error instanceof Error ? error.message : String(error) },
+    });
   }
 };
 

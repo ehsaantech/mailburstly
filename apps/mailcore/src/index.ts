@@ -5,7 +5,7 @@
  * the Gmail API and Microsoft Graph, the open/click tracking, and the events
  * the worker consumes. Business decisions stay in the api and the worker.
  *
- * It speaks the subset of EmailEngine's REST contract that the rest of the
+ * It speaks the subset of mailcore's REST contract that the rest of the
  * app already uses, so the cutover is a change of base URL.
  */
 import { Hono, type Context } from "hono";
@@ -51,7 +51,7 @@ import {
 } from "./providers";
 import { gmailSend, gmailSync, graphSend, graphSync } from "./api-providers";
 import { backoffMs, deliver, envelope } from "./webhook";
-import { forwardToLegacy, legacyAccounts } from "./legacy";
+import { emailFromToken, tokenForEmail } from "./unsubscribe";
 
 const app = new Hono();
 
@@ -213,12 +213,8 @@ app.post("/v1/authentication/form", async (c) => {
 
 app.get("/v1/accounts", async (c) => {
   const accounts = await listAccounts();
-  const legacy = await legacyAccounts();
   return c.json({
-    accounts: [
-      ...accounts.map((a) => ({ ...accountJson(a), source: "mailcore" })),
-      ...legacy,
-    ],
+    accounts: accounts.map((a) => ({ ...accountJson(a), source: "mailcore" })),
   });
 });
 
@@ -226,8 +222,6 @@ app.get("/v1/account/:id", async (c) => {
   const id = c.req.param("id");
   const account = await getAccount(id);
   if (!account) {
-    const legacy = await forwardToLegacy(`/v1/account/${encodeURIComponent(id)}`, "GET", undefined);
-    if (legacy) return new Response(legacy.body, { status: legacy.status, headers: { "Content-Type": "application/json" } });
     return c.json({ statusCode: 404, error: "Not Found" }, 404);
   }
   return c.json(accountJson(account));
@@ -260,10 +254,6 @@ app.post("/v1/account", async (c) => {
 
 app.delete("/v1/account/:id", async (c) => {
   const id = c.req.param("id");
-  if (!(await getAccount(id))) {
-    const legacy = await forwardToLegacy(`/v1/account/${encodeURIComponent(id)}`, "DELETE", undefined);
-    if (legacy) return new Response(null, { status: legacy.status });
-  }
   await deleteAccount(id);
   return c.body(null, 204);
 });
@@ -318,23 +308,12 @@ app.post("/v1/account/:id/submit", async (c) => {
       reference?: { message?: string; action?: string; ignoreMissing?: boolean };
       trackOpens?: boolean;
       trackClicks?: boolean;
+      /** Per-campaign switch: emit a one-click List-Unsubscribe header. */
+      unsubscribeHeader?: boolean;
     };
 
-    let account = await getAccount(id);
+    const account = await getAccount(id);
     if (!account) {
-      // The account may still be held by the legacy engine, which owns its
-      // tokens. Forward the send there instead of failing.
-      const legacy = await forwardToLegacy(
-        `/v1/account/${encodeURIComponent(id)}/submit`,
-        "POST",
-        body,
-      );
-      if (legacy) {
-        return new Response(legacy.body, {
-          status: legacy.status,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
       return c.json({ statusCode: 404, error: "Not Found" }, 404);
     }
 
@@ -361,6 +340,19 @@ app.post("/v1/account/:id/submit", async (c) => {
 
     let result: { messageId: string; providerId: string | null; threadId: string | null };
 
+    // One-click unsubscribe: the header carries a URL that identifies *this*
+    // recipient, so a token is minted per message and the worker's
+    // `listUnsubscribe` event names the right lead. The token is signed with
+    // the vault key, so a forged one is refused.
+    const headers: Record<string, string> = { ...(body.headers ?? {}) };
+    if (body.unsubscribeHeader && to) {
+      const token = tokenForEmail(to);
+      const base = env.MAILCORE_PUBLIC_URL.replace(/\/$/, "");
+      const url = `${base}/u/${token}`;
+      headers["List-Unsubscribe"] = `<${url}>`;
+      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+    }
+
     const sendInput = {
       from: account.email,
       fromName: account.displayName,
@@ -369,7 +361,7 @@ app.post("/v1/account/:id/submit", async (c) => {
       text,
       html,
       messageId,
-      headers: body.headers,
+      headers,
       references,
       threadId,
     };
@@ -437,14 +429,25 @@ app.get("/t/c/:id", async (c) => {
   return c.redirect("/");
 });
 
-app.get("/u/:token", (c) =>
-  c.html("<p>Unsubscribe confirmed. You will not receive further mail.</p>"),
-);
+app.get("/u/:token", (c) => {
+  const email = emailFromToken(c.req.param("token"));
+  if (!email) {
+    return c.html("<p>This unsubscribe link is not valid.</p>", 404);
+  }
+  return c.html(
+    `<p>You have been unsubscribed from <strong>${email}</strong>.</p>`,
+  );
+});
 
 app.post("/u/:token", async (c) => {
-  const token = c.req.param("token");
-  await enqueueEvent(null, "listUnsubscribe", { recipient: token });
-  return c.body(null, 200);
+  const email = emailFromToken(c.req.param("token"));
+  if (!email) {
+    return c.text("invalid unsubscribe token", 404);
+  }
+  // The worker turns this into an unsubscribe and a blocklist entry, so the
+  // address never has to be trusted from the request.
+  await enqueueEvent(null, "listUnsubscribe", { recipient: email });
+  return c.text("unsubscribed", 200);
 });
 
 /* -------------------------------------------------------------------------- */

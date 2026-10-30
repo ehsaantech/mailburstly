@@ -1,7 +1,8 @@
 import { badRequest, notFound } from "@/core/errors";
 import type { DbHandle } from "@/db";
 import { renderTemplate } from "@/lib/renderer";
-import { submitMessage } from "@/lib/emailengine";
+import { submitMessage } from "@/lib/mailcore";
+import { raiseAlert } from "@/lib/alerts";
 import { createCampaignRepository, type CampaignRow } from "./repository";
 import { createListRepository } from "../lists/repository";
 import type {
@@ -538,17 +539,32 @@ export function createCampaignService(deps: CampaignServiceDeps) {
 
       let result: { messageId: string };
       try {
-        result = await submitMessage(mailbox.emailengineId, {
+        result = await submitMessage(mailbox.mailcoreAccountId, {
           to: input.to,
           subject: subject.rendered,
           html: body.rendered,
+          // The test goes out exactly as the campaign would, header and all.
+          unsubscribeHeader: campaign.insertUnsubscribeHeader,
         });
       } catch (error) {
-        throw badRequest(
-          `The test could not be sent: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+        const detail = error instanceof Error ? error.message : String(error);
+
+        void raiseAlert({
+          key: "api.campaign_test_send_failed",
+          title: "A campaign test send failed",
+          message: detail,
+          severity: "error",
+          service: "api",
+          context: {
+            campaignId,
+            campaign: campaign.name,
+            mailbox: mailbox.email,
+            to: input.to,
+            error: detail,
+          },
+        });
+
+        throw badRequest(`The test could not be sent: ${detail}`);
       }
 
       return {

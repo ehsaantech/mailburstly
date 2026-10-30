@@ -22,7 +22,7 @@ export * from "./components/scheduler/controller";
 export * from "./components/scheduler/service";
 export * from "./components/scheduler/repository";
 
-/* Events — the EmailEngine webhook receiver and its pipeline. */
+/* Events — the mailcore webhook receiver and its pipeline. */
 export * from "./components/events/controller";
 export * from "./components/events/service";
 export * from "./components/events/repository";

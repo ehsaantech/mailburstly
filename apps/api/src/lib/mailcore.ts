@@ -1,9 +1,9 @@
 /**
- * HTTP client for the self-hosted EmailEngine.
+ * HTTP client for the self-hosted mailcore.
  *
- * EmailEngine owns all mail-protocol work (OAuth2, IMAP, SMTP, token
+ * mailcore owns all mail-protocol work (OAuth2, IMAP, SMTP, token
  * refresh) and exposes it over REST. We never speak IMAP or OAuth ourselves;
- * this client is the only place EmailEngine's URL and bearer token live.
+ * this client is the only place mailcore's URL and bearer token live.
  *
  * All methods throw an `AppError` (or a plain `Error` for transport failures)
  * so callers can rely on a single error shape.
@@ -11,11 +11,12 @@
 
 // No unused imports — errors are surfaced as plain Error instances.
 import { env } from "@/env";
+import { raiseAlert } from "@/lib/alerts";
 
-const BASE = env.EMAILENGINE_API_URL.replace(/\/$/, "");
+const BASE = env.MAILCORE_API_URL.replace(/\/$/, "");
 
 function authHeaders(): Record<string, string> {
-  const token = env.EMAILENGINE_API_TOKEN || env.EMAILENGINE_SECRET;
+  const token = env.MAILCORE_API_TOKEN;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -38,9 +39,20 @@ async function request<T>(
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (error) {
-    throw new Error(
-      `EmailEngine unreachable at ${BASE}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    const detail = error instanceof Error ? error.message : String(error);
+
+    // The gateway is down. Nothing can be sent until it is back, so this is
+    // worth an email rather than a log line nobody reads.
+    void raiseAlert({
+      key: "api.emailengine_unreachable",
+      title: "The api cannot reach the mail gateway",
+      message: `mailcore at ${BASE} did not answer: ${detail}`,
+      severity: "error",
+      service: "api",
+      context: { method, path, error: detail },
+    });
+
+    throw new Error(`mailcore unreachable at ${BASE}: ${detail}`);
   }
 
   const text = await response.text();
@@ -52,11 +64,23 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    throw new Error(
-      `EmailEngine ${method} ${path} failed: ${
-        failureDetail(payload) || `returned ${response.status}`
-      }`,
-    );
+    const detail =
+      failureDetail(payload) || `returned ${response.status}`;
+
+    // A 5xx is the gateway breaking. A 4xx is usually our payload, which is
+    // a bug to fix rather than an incident to page about.
+    if (response.status >= 500) {
+      void raiseAlert({
+        key: "api.emailengine_error",
+        title: "The mail gateway refused a request",
+        message: `mailcore ${method} ${path} returned ${response.status}: ${detail}`,
+        severity: "error",
+        service: "api",
+        context: { method, path, status: response.status, detail },
+      });
+    }
+
+    throw new Error(`mailcore ${method} ${path} failed: ${detail}`);
   }
 
   return payload as T;
@@ -93,7 +117,7 @@ function failureDetail(payload: unknown): string {
 /* -------------------------------------------------------------------------- */
 
 export interface AuthFormParams {
-  /** Our mailbox id, reused as EmailEngine's account id. */
+  /** Our mailbox id, reused as mailcore's account id. */
   account: string;
   email?: string;
   expectedEmail?: string;
@@ -103,7 +127,7 @@ export interface AuthFormParams {
    * Preferred over `type`, which mailcore ignores for routing.
    */
   provider?: string;
-  /** OAuth2 application ID from EmailEngine's Integrations > OAuth2 Apps. */
+  /** OAuth2 application ID from mailcore's Integrations > OAuth2 Apps. */
   type?: string;
   skipServerSettings?: boolean;
   redirectUrl: string;
@@ -123,7 +147,7 @@ export async function generateAuthForm(
 /* Account management                                                         */
 /* -------------------------------------------------------------------------- */
 
-export interface EmailEngineAccount {
+export interface MailcoreAccount {
   account: string;
   email: string;
   name: string | null;
@@ -136,8 +160,8 @@ export interface EmailEngineAccount {
   createdAt?: string;
 }
 
-export async function getAccount(accountId: string): Promise<EmailEngineAccount> {
-  return request<EmailEngineAccount>("GET", `/v1/account/${encodeURIComponent(accountId)}`);
+export async function getAccount(accountId: string): Promise<MailcoreAccount> {
+  return request<MailcoreAccount>("GET", `/v1/account/${encodeURIComponent(accountId)}`);
 }
 
 export async function deleteAccount(accountId: string): Promise<void> {
@@ -149,7 +173,7 @@ export async function reconnectAccount(accountId: string): Promise<void> {
 }
 
 /**
- * Ask EmailEngine to verify an IMAP/SMTP pair up front. Only meaningful for
+ * Ask mailcore to verify an IMAP/SMTP pair up front. Only meaningful for
  * manual IMAP accounts; OAuth accounts verify during the consent flow.
  */
 export async function verifyAccount(settings: {
@@ -176,7 +200,7 @@ export async function createManualAccount(settings: {
 export type MailboxProvider = "google" | "microsoft" | "imap_smtp";
 
 /**
- * Map EmailEngine's account type to our provider enum. EmailEngine reports
+ * Map mailcore's account type to our provider enum. mailcore reports
  * "gmail" / "outlook" / "imap" / "microsoft"; anything else falls back to
  * imap_smtp so we never store an unknown value.
  */
@@ -187,7 +211,7 @@ export function providerFromAccountType(type: string): MailboxProvider {
 }
 
 /**
- * Map EmailEngine's connection state to our health score. A brand-new account
+ * Map mailcore's connection state to our health score. A brand-new account
  * that is still syncing gets a generous 80; anything in an error state gets 0
  * so it is visibly unhealthy in the UI.
  */
@@ -222,11 +246,17 @@ export interface SubmitMessageInput {
   html?: string;
   text?: string;
   /**
-   * The id of the message being replied to: EmailEngine's own id for a
+   * The id of the message being replied to: mailcore's own id for a
    * message it delivered, or an RFC Message-ID for one we sent. Either
    * way the client turns it into the headers a threaded reply needs.
    */
   inReplyTo?: string;
+  /**
+   * Emit a one-click `List-Unsubscribe` header. mailcore mints a token that
+   * identifies the recipient, so the link names the right lead when it is
+   * followed.
+   */
+  unsubscribeHeader?: boolean;
 }
 
 export interface SubmitMessageResult {
@@ -237,15 +267,15 @@ export interface SubmitMessageResult {
 /**
  * The fields that thread a reply onto the message it answers.
  *
- * EmailEngine's submit payload has no `inReplyTo` field: sending one fails
+ * mailcore's submit payload has no `inReplyTo` field: sending one fails
  * the whole request with 400 "Invalid input", which is where every reply
  * to a thread used to die.
  *
  * Two id shapes reach us, because `messages.provider_message_id` holds
- * EmailEngine's own id for a message it delivered and the RFC Message-ID
+ * mailcore's own id for a message it delivered and the RFC Message-ID
  * for one we sent:
  *
- * - an EmailEngine id goes in `reference`, and EmailEngine fills in the
+ * - an mailcore id goes in `reference`, and mailcore fills in the
  *   In-Reply-To and References headers from the message it names, and
  *   flags that message as answered;
  * - an RFC Message-ID goes into the headers directly.
@@ -264,7 +294,7 @@ function threadingPayload(
     reference: {
       message: id,
       action: "reply",
-      // A parent EmailEngine can no longer find — deleted, moved to the
+      // A parent mailcore can no longer find — deleted, moved to the
       // trash — must not stop the reply from going out. It goes out
       // unthreaded instead.
       ignoreMissing: true,
@@ -273,9 +303,9 @@ function threadingPayload(
 }
 
 /**
- * Sends a message through EmailEngine.
+ * Sends a message through mailcore.
  *
- * `account` is EmailEngine's account id, not our mailbox id — the two
+ * `account` is mailcore's account id, not our mailbox id — the two
  * differ, and sending to the wrong one fails. `to` is an array of address
  * objects, not a string.
  */
@@ -293,6 +323,7 @@ export async function submitMessage(
   const threading = threadingPayload(input.inReplyTo);
   if (threading.reference) payload.reference = threading.reference;
   if (threading.headers) payload.headers = threading.headers;
+  if (input.unsubscribeHeader) payload.unsubscribeHeader = true;
 
   const result = await request<SubmitMessageResult>(
     "POST",

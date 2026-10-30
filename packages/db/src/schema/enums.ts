@@ -61,6 +61,14 @@ export const activityTypeEnum = pgEnum("activity_type", [
   "subsequence_entered",
 ]);
 
+/**
+ * How loud an alert is.
+ *
+ * A recipient stores the *minimum* severity they want, so "warning" means
+ * "tell me everything" and "error" means "only when it is broken".
+ */
+export const alertSeverityEnum = pgEnum("alert_severity", ["error", "warning"]);
+
 export const blocklistTypeEnum = pgEnum("blocklist_type", ["email", "domain"]);
 
 export const blocklistSourceEnum = pgEnum("blocklist_source", [

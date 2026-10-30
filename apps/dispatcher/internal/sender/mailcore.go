@@ -13,16 +13,16 @@ import (
 	"github.com/mailrung/dispatcher/internal/types"
 )
 
-// EmailEngineClient submits messages to EmailEngine.
-type EmailEngineClient struct {
+// MailcoreClient submits messages to mailcore.
+type MailcoreClient struct {
 	BaseURL string
 	Token   string
 	HTTP    *http.Client
 }
 
 // New creates a client.
-func New(baseURL, token string) *EmailEngineClient {
-	return &EmailEngineClient{
+func New(baseURL, token string) *MailcoreClient {
+	return &MailcoreClient{
 		BaseURL: baseURL,
 		Token:   token,
 		HTTP:    &http.Client{Timeout: 30 * time.Second},
@@ -78,8 +78,8 @@ func senderName(mailbox string) string {
 	return strings.Join(parts, " ")
 }
 
-// SubmitMessage renders and sends a message via EmailEngine.
-func (c *EmailEngineClient) SubmitMessage(job *types.SendJob) (*types.SendResult, error) {
+// SubmitMessage renders and sends a message via mailcore.
+func (c *MailcoreClient) SubmitMessage(job *types.SendJob) (*types.SendResult, error) {
 	data := BuildRenderData(job)
 	opts := render.Options{EnableSpintax: true}
 
@@ -107,7 +107,7 @@ func (c *EmailEngineClient) SubmitMessage(job *types.SendJob) (*types.SendResult
 	}
 	plain := render.Render(*text, data, opts)
 
-	// EmailEngine expects recipients as an array of address objects, and the
+	// mailcore expects recipients as an array of address objects, and the
 	// sending account is identified by its id in the URL path.
 	payload := map[string]any{
 		"to": []map[string]any{
@@ -116,10 +116,13 @@ func (c *EmailEngineClient) SubmitMessage(job *types.SendJob) (*types.SendResult
 		"subject": subject,
 		"text":    plain,
 		"html":    body,
-		// Tracking is a per-campaign switch. EmailEngine inserts the
+		// Tracking is a per-campaign switch. mailcore inserts the
 		// tracking pixel and rewrites the links itself when these are on.
 		"trackOpens":  job.OpenTracking,
 		"trackClicks": job.LinkTracking,
+		// The List-Unsubscribe header, when the campaign asks for one. The
+		// link identifies the recipient, so mailcore mints it per message.
+		"unsubscribeHeader": job.UnsubscribeHeader,
 	}
 
 	data2, err := json.Marshal(payload)
@@ -127,9 +130,9 @@ func (c *EmailEngineClient) SubmitMessage(job *types.SendJob) (*types.SendResult
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
 
-	account := job.EmailEngineAccountID
+	account := job.MailcoreAccountID
 	if account == "" {
-		return nil, fmt.Errorf("mailbox %s has no emailengine_id", job.MailboxID)
+		return nil, fmt.Errorf("mailbox %s has no mailcore_account_id", job.MailboxID)
 	}
 
 	req, err := http.NewRequest(
@@ -154,7 +157,7 @@ func (c *EmailEngineClient) SubmitMessage(job *types.SendJob) (*types.SendResult
 		buf := make([]byte, 2048)
 		n, _ := resp.Body.Read(buf)
 		detail = buf[:n]
-		return nil, fmt.Errorf("emailengine returned %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+		return nil, fmt.Errorf("mailcore returned %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
 	}
 
 	var result types.SendResult

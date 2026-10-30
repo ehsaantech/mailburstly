@@ -281,7 +281,7 @@ async function main() {
     });
     check("the reply is sent", res.status === 201, res.status);
     check(
-      "EmailEngine returned a message id",
+      "mailcore returned a message id",
       typeof res.json?.data?.messageId === "string" &&
         res.json.data.messageId.length > 5,
       res.json?.data,
