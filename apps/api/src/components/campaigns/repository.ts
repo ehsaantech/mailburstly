@@ -2,6 +2,7 @@ import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import {
   activities,
   campaignLeads,
+  campaignLists,
   campaignMailboxes,
   campaignSteps,
   campaigns,
@@ -75,6 +76,131 @@ export function createCampaignRepository({ db }: { db: Database }) {
         .where(and(eq(campaigns.id, id), eq(campaigns.workspaceId, workspaceId)))
         .returning({ id: campaigns.id });
       return rows.length > 0;
+    },
+
+    async archive(workspaceId: string, id: string) {
+      const rows = await db
+        .update(campaigns)
+        .set({ archivedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(campaigns.id, id), eq(campaigns.workspaceId, workspaceId)))
+        .returning({ id: campaigns.id });
+      return rows.length > 0;
+    },
+
+    async restore(workspaceId: string, id: string) {
+      const rows = await db
+        .update(campaigns)
+        .set({ archivedAt: null, updatedAt: new Date() })
+        .where(and(eq(campaigns.id, id), eq(campaigns.workspaceId, workspaceId)))
+        .returning({ id: campaigns.id });
+      return rows.length > 0;
+    },
+
+    /**
+     * Deep-copies a campaign including steps, variants, lists and mailboxes.
+     * Nothing that represents send outcomes (leads, jobs, activities) is
+     * copied. Must run inside a transaction so a partial copy can't strand.
+     */
+    async duplicate(workspaceId: string, id: string, name: string): Promise<CampaignRow | null> {
+      return db.transaction(async (tx) => {
+        const original = await tx
+          .select()
+          .from(campaigns)
+          .where(and(eq(campaigns.id, id), eq(campaigns.workspaceId, workspaceId)))
+          .limit(1);
+        if (!original[0]) return null;
+        const o = original[0];
+
+        const [copy] = await tx
+          .insert(campaigns)
+          .values({
+            workspaceId: o.workspaceId,
+            name,
+            status: "draft",
+            dailyLimit: o.dailyLimit,
+            dailyMaxLeads: o.dailyMaxLeads,
+            emailGapMinutes: o.emailGapMinutes,
+            randomWaitMax: o.randomWaitMax,
+            stopOnReply: o.stopOnReply,
+            stopOnAutoReply: o.stopOnAutoReply,
+            stopForCompany: o.stopForCompany,
+            openTracking: o.openTracking,
+            linkTracking: o.linkTracking,
+            textOnly: o.textOnly,
+            insertUnsubscribeHeader: o.insertUnsubscribeHeader,
+            allowRiskyContacts: o.allowRiskyContacts,
+            enrollOnAdd: o.enrollOnAdd,
+            tags: o.tags,
+            schedule: o.schedule,
+          })
+          .returning();
+
+        if (!copy) return null;
+
+        const steps = await tx
+          .select()
+          .from(campaignSteps)
+          .where(eq(campaignSteps.campaignId, id))
+          .orderBy(campaignSteps.position);
+
+        const stepIdMap = new Map<string, string>();
+        for (const step of steps) {
+          const [newStep] = await tx
+            .insert(campaignSteps)
+            .values({
+              campaignId: copy.id,
+              position: step.position,
+              subject: step.subject,
+              bodyHtml: step.bodyHtml,
+              bodyText: step.bodyText,
+              preheader: step.preheader,
+              delayMinutes: step.delayMinutes,
+              threadMode: step.threadMode,
+            })
+            .returning();
+          if (!newStep) throw new Error("step clone failed");
+          stepIdMap.set(step.id, newStep.id);
+
+          const variants = await tx
+            .select()
+            .from(stepVariants)
+            .where(eq(stepVariants.stepId, step.id));
+          for (const variant of variants) {
+            await tx.insert(stepVariants).values({
+              stepId: newStep.id,
+              label: variant.label,
+              subject: variant.subject,
+              bodyHtml: variant.bodyHtml,
+              weight: variant.weight,
+              pinned: variant.pinned,
+            });
+          }
+        }
+
+        const lists = await tx
+          .select()
+          .from(campaignLists)
+          .where(eq(campaignLists.campaignId, id));
+        for (const link of lists) {
+          await tx.insert(campaignLists).values({
+            campaignId: copy.id,
+            listId: link.listId,
+          });
+        }
+
+        const mailboxes = await tx
+          .select()
+          .from(campaignMailboxes)
+          .where(eq(campaignMailboxes.campaignId, id));
+        for (const mb of mailboxes) {
+          await tx.insert(campaignMailboxes).values({
+            campaignId: copy.id,
+            mailboxId: mb.mailboxId,
+          });
+        }
+
+        return copy;
+      });
     },
 
     // --- Steps ---
