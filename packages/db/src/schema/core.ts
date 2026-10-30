@@ -124,3 +124,28 @@ export const mailboxDailyStats = pgTable(
     index("mailbox_daily_stats_date_idx").on(t.date),
   ],
 );
+
+/**
+ * Membership of a user in a workspace.
+ */
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: userRoleEnum("role").notNull().default("member"),
+    preferences: jsonb("preferences").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("workspace_members_unique_idx").on(t.workspaceId, t.userId),
+    index("workspace_members_user_idx").on(t.userId),
+  ],
+);

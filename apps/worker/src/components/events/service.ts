@@ -1,4 +1,6 @@
 import type { Logger } from "@/core/logger";
+import { env } from "@/env";
+import { createChatClient, SUGGEST_SYSTEM_PROMPT, stripFence } from "@mailrung/shared";
 import { raiseAlert } from "@/lib/alerts";
 import {
   buildSnippet,
@@ -66,6 +68,11 @@ const LABEL_FOR_INTEREST: Record<Interest, string> = {
   neutral: "",
   question: "",
 };
+
+
+function isDecisionModel(name: string): boolean {
+  return ["clef", "nimble", "tev", "clef-flash"].includes(name.toLowerCase().split(":")[0] ?? "");
+}
 
 export function createEventsService(deps: EventsServiceDeps) {
   const repo: EventsRepository = createEventsRepository({ db: deps.db.db });
@@ -153,6 +160,175 @@ export function createEventsService(deps: EventsServiceDeps) {
   /* ------------------------------------------------------------------ */
   /* Handlers                                                            */
   /* ------------------------------------------------------------------ */
+
+  const notifyReply = async (input: {
+    workspaceId: string;
+    conversationId: string;
+    messageId: string;
+    leadId: string | null;
+    campaignId: string | null;
+    mailboxId: string;
+    fromAddress: string;
+  }) => {
+    if (!input.leadId) return;
+
+    const leadListIds = await repo.listsForLead(input.workspaceId, input.leadId);
+    const campaignListIds = input.campaignId
+      ? await repo.listsForCampaign(input.campaignId)
+      : [];
+    const listIds = [...new Set([...leadListIds, ...campaignListIds])];
+
+    let watcherUserIds = (await repo.watchersForLists(listIds)).map((w) => w.userId);
+    if (watcherUserIds.length === 0) {
+      watcherUserIds = await repo.workspaceMemberUserIds(input.workspaceId);
+    }
+    watcherUserIds = [...new Set(watcherUserIds)];
+
+    const users = await Promise.all(watcherUserIds.map((id) => repo.userById(id)));
+    watcherUserIds = watcherUserIds.filter((id) => {
+      const user = users.find((u) => u?.id === id);
+      return !user || (user.email ?? "").toLowerCase() !== input.fromAddress.toLowerCase();
+    });
+
+    if (watcherUserIds.length === 0) return;
+
+    const lastInbound = (await repo.messagesForConversation(input.conversationId))
+      .filter((m: any) => m.direction === "inbound")
+      .pop();
+    const snippet = (lastInbound?.textBody ?? lastInbound?.snippet ?? "").trim().slice(0, 300);
+
+    const lead = input.leadId ? await repo.leadById(input.leadId) : null;
+    const recipientName =
+      (lead?.firstName || lead?.lastName)
+        ? [lead.firstName, lead.lastName].filter(Boolean).join(" ")
+        : (lastInbound?.fromAddress ?? input.fromAddress);
+
+    await repo.insertNotifications(
+      watcherUserIds.map((userId) => ({
+        workspaceId: input.workspaceId,
+        userId,
+        type: "reply_received",
+        conversationId: input.conversationId,
+        campaignId: input.campaignId,
+        listId: listIds[0] ?? null,
+        messageId: input.messageId,
+        title: `Reply from ${recipientName}`,
+        body: snippet || null,
+        dedupeKey: `reply:${input.messageId}:${userId}`,
+      })),
+    );
+
+    void generateWatcherDraft(input).catch((error) => {
+      log.warn("watcher draft failed", { error: error instanceof Error ? error.message : String(error) });
+    });
+  };
+
+  const generateWatcherDraft = async (input: {
+    workspaceId: string;
+    conversationId: string;
+    messageId: string;
+    leadId: string | null;
+    campaignId: string | null;
+  }) => {
+    const conversation = await repo.findConversationById(input.conversationId);
+    if (!conversation || conversation.suggestedForMessageId === input.messageId) {
+      return;
+    }
+
+    const settings = await repo.workspaceSettings(input.workspaceId);
+    let writerModel = (settings as any)?.llm?.writerModel;
+    if (!writerModel && (settings as any)?.llm?.model && !isDecisionModel((settings as any).llm.model)) {
+      writerModel = (settings as any).llm.model;
+    }
+    if (!writerModel || isDecisionModel(writerModel)) {
+      writerModel = "gpt-oss:20b";
+    }
+
+    const maxTokens = (settings as any)?.llm?.writerMaxTokens ?? 1200;
+    const timeoutMs = (settings as any)?.llm?.writerTimeoutMs ?? 45000;
+
+    await repo.setSuggestedReply(input.conversationId, {
+      forMessageId: input.messageId,
+      text: "",
+      html: "",
+      model: writerModel,
+      state: "pending",
+    });
+
+    const thread = await repo.messagesForConversation(input.conversationId);
+    if (thread.length === 0) {
+      await repo.setSuggestedReply(input.conversationId, {
+        forMessageId: input.messageId,
+        text: "",
+        html: "",
+        model: writerModel,
+        state: "failed",
+        error: "No messages to draft from",
+      });
+      return;
+    }
+
+    const lead = input.leadId ? await repo.leadById(input.leadId) : null;
+    const campaign = input.campaignId ? await repo.campaignById(input.campaignId) : null;
+
+    const transcript = thread
+      .map((m: any) => {
+        const who = m.direction === "outbound" ? "Us" : m.fromAddress;
+        return `${who}: ${(m.textBody ?? m.snippet ?? "").trim()}`;
+      })
+      .join("\n\n");
+
+    const context = [
+      `Campaign: ${campaign?.name ?? "none"}`,
+      lead
+        ? `Recipient: ${[lead.firstName, lead.lastName].filter(Boolean).join(" ")} <${lead.email}>${lead.company ? ` — ${lead.company}` : ""}${lead.title ? `, ${lead.title}` : ""}`
+        : "Recipient: (unknown)",
+      "",
+      "Conversation so far:",
+      transcript,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const client = createChatClient({
+      baseUrl: env.LLM_BASE_URL,
+      apiKey: env.LLM_API_KEY,
+      defaultModel: writerModel,
+      maxTokens,
+      timeoutMs,
+    });
+
+    const result = await client.chat({
+      model: writerModel,
+      messages: [
+        { role: "system", content: SUGGEST_SYSTEM_PROMPT },
+        { role: "user", content: `${context}\n\nWrite a reply in a direct tone.` },
+      ],
+      maxTokens,
+      timeoutMs,
+    });
+
+    if (!result.ok || !result.content.trim()) {
+      await repo.setSuggestedReply(input.conversationId, {
+        forMessageId: input.messageId,
+        text: "",
+        html: "",
+        model: writerModel,
+        state: "failed",
+        error: result.error ?? "The model returned no draft text",
+      });
+      return;
+    }
+
+    const draft = stripFence(result.content);
+    await repo.setSuggestedReply(input.conversationId, {
+      forMessageId: input.messageId,
+      text: draft,
+      html: draft,
+      model: result.model,
+      state: "ready",
+    });
+  };
 
   const handleMessageNew = async (event: MailcoreEvent) => {
     const data = (event.data ?? {}) as MailcoreMessageData;
@@ -370,6 +546,18 @@ export function createEventsService(deps: EventsServiceDeps) {
       log.info("lead unsubscribed", { leadId });
       return;
     }
+
+    void notifyReply({
+      workspaceId,
+      conversationId: conversation.id,
+      messageId: message.id,
+      leadId,
+      campaignId,
+      mailboxId: mailbox.id,
+      fromAddress,
+    }).catch((error) => {
+      log.warn("reply notification failed", { error: error instanceof Error ? error.message : String(error) });
+    });
 
     // A label is only applied when the classifier says the answer is safe
     // to act on. Below the threshold the reply is left for a human.

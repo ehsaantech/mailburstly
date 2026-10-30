@@ -186,7 +186,17 @@ export function InboxPage() {
 
   const conversations = conversationsQuery.data?.data?.items ?? [];
   const selected = threadQuery.data?.data?.conversation ?? null;
-  const labels = labelsQuery.data?.data?.items ?? [];
+
+  // Prefill an AI draft as soon as the thread loads, without overwriting
+  // anything the operator has already typed.
+  useEffect(() => {
+    const suggested = (selected as any)?.suggestedReplyText as string | undefined;
+    const state = (selected as any)?.suggestedState as string | undefined;
+    if (state === "ready" && suggested && !draft.trim()) {
+      setDraft(suggested);
+      setSuggestMeta({ model: (selected as any)?.suggestedModel ?? null, latencyMs: undefined });
+    }
+  }, [selected, selectedId]);  const labels = labelsQuery.data?.data?.items ?? [];
   const macros = macrosQuery.data?.data?.items ?? [];
   const opportunities = opportunitiesQuery.data?.data?.items ?? [];
 
@@ -685,6 +695,10 @@ ${result.data.draft}`
                         (suggest.error instanceof Error
                           ? suggest.error.message
                           : "No suggestion could be generated")}
+                    </p>
+                  ) : (selected as any)?.suggestedState === "ready" && draft.trim() ? (
+                    <p className="mt-1.5 px-1 text-[10px] text-accent">
+                      AI draft — review before sending. Reply stops the sequence for this lead.
                     </p>
                   ) : (
                     <p className="mt-1.5 px-1 text-[10px] text-fg-subtle">

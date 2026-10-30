@@ -28,6 +28,8 @@ import { createSubsequenceRoutes } from "@/components/subsequences/controller";
 import { createPublicApiService } from "@/components/public-api/service";
 import { createPublicApiRoutes } from "@/components/public-api/controller";
 import { createSettingsService } from "@/components/settings/service";
+import { createNotificationService } from "@/components/notifications/service";
+import { createNotificationRoutes } from "@/components/notifications/controller";
 import { createSettingsRoutes } from "@/components/settings/controller";
 import { createListService } from "@/components/lists/service";
 import { createListRoutes } from "@/components/lists/controller";
@@ -73,6 +75,8 @@ export function createRootRouter(db: DbHandle, log: Logger) {
   const workspaceId = async () => (await workspaceRepository.primary()).id;
 
   const inboxService = createInboxService({ db, workspaceId });
+
+  const notificationService = createNotificationService({ db, workspaceId });
 
   const analyticsService = createAnalyticsService({ db, workspaceId });
 
@@ -161,7 +165,7 @@ export function createRootRouter(db: DbHandle, log: Logger) {
     createWorkspaceRoutes(workspaceRepository, requireAuth),
   );
   app.route("/inbox", createInboxRoutes(inboxService, requireAuth));
-  app.route(
+  app.route("/notifications", createNotificationRoutes(notificationService, requireAuth));  app.route(
     "/analytics",
     createAnalyticsRoutes(analyticsService, requireAuth),
   );

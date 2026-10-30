@@ -7,6 +7,8 @@ import {
   leadLists,
   leads,
   leadLabels,
+  listWatchers,
+  users,
   type Database,
 } from "@mailrung/db";
 
@@ -262,6 +264,29 @@ export function createListRepository({ db }: { db: Database }) {
         .onConflictDoNothing()
         .returning({ id: campaignLeads.id });
       return rows.length;
+    },
+
+    async listWatchers(listId: string) {
+      return db
+        .select({
+          userId: listWatchers.userId,
+          inApp: listWatchers.inApp,
+          email: listWatchers.email,
+          name: users.name,
+          emailAddr: users.email,
+        })
+        .from(listWatchers)
+        .innerJoin(users, eq(users.id, listWatchers.userId))
+        .where(eq(listWatchers.listId, listId));
+    },
+
+    async replaceWatchers(listId: string, userIds: string[]) {
+      await db.delete(listWatchers).where(eq(listWatchers.listId, listId));
+      if (userIds.length === 0) return [];
+      return db
+        .insert(listWatchers)
+        .values(userIds.map((userId) => ({ listId, userId })))
+        .returning();
     },
   };
 }

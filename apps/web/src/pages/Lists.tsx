@@ -297,6 +297,23 @@ function ListDetailModal({
   // The members endpoint paginates, so the array sits directly under `data`.
   const memberItems = members.data?.data ?? [];
 
+  const watchers = useQuery({
+    queryKey: ["lists", listId, "watchers"],
+    queryFn: () => api.get<{ data: { items: Array<{ userId: string; name?: string; email?: string; inApp: boolean; emailEnabled: boolean }> } }>(`/lists/${listId}/watchers`),
+    enabled: Boolean(listId),
+  });
+
+  const membersQuery = useQuery({
+    queryKey: ["workspace-members"],
+    queryFn: () => api.get<{ data: { items: Array<{ userId: string; name: string; email: string; role: string }> } }>("/workspace/members"),
+  });
+
+  const replaceWatchers = useMutation({
+    mutationFn: (userIds: string[]) => api.put(`/lists/${listId}/watchers`, { userIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lists", listId, "watchers"] });
+    },
+  });
   const addMembers = useMutation({
     mutationFn: (leadIds: string[]) =>
       api.post(`/lists/${listId}/members`, { leadIds }),
@@ -387,6 +404,36 @@ function ListDetailModal({
                   </option>
                 ))}
             </Select>
+          </div>
+        </div>
+
+        {/* Watchers */}
+        <div className="rounded-lg border border-border p-3">
+          <p className="text-xs font-medium text-fg">Watchers</p>
+          <p className="mt-0.5 text-[11px] text-fg-subtle">
+            Everyone here is notified when a lead in this list replies.
+          </p>
+          <div className="mt-2 space-y-1">
+            {membersQuery?.data?.data?.items?.map((m: any) => {
+              const isWatcher = watchers.data?.data?.items?.some((w: any) => w.userId === m.userId);
+              return (
+                <label key={m.userId} className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={isWatcher}
+                    onChange={() => {
+                      const current = (watchers.data?.data?.items ?? []).map((w: any) => w.userId);
+                      const next = new Set(current);
+                      if (next.has(m.userId)) next.delete(m.userId);
+                      else next.add(m.userId);
+                      replaceWatchers.mutate([...next]);
+                    }}
+                    className="h-3.5 w-3.5 cursor-pointer rounded border-border accent-[var(--accent)]"
+                  />
+                  <span className="text-fg">{m.name ?? m.email}</span>
+                </label>
+              );
+            })}
           </div>
         </div>
 
