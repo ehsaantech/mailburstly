@@ -13,13 +13,32 @@ interface AccountRow {
   email: string;
   display_name: string | null;
   provider: string;
-  settings: Record<string, unknown>;
+  settings: unknown;
   status: string;
   scopes: string[];
   access_token_enc: string | null;
   refresh_token_enc: string;
   access_expires_at: Date | null;
   last_error: string | null;
+}
+
+function normalizeSettings(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return {};
 }
 
 function toAccount(row: AccountRow): Account {
@@ -35,7 +54,7 @@ function toAccount(row: AccountRow): Account {
     accessExpiresAt: row.access_expires_at
       ? row.access_expires_at.getTime()
       : 0,
-    settings: row.settings ?? {},
+    settings: normalizeSettings(row.settings),
   };
 }
 
@@ -70,14 +89,14 @@ export async function upsertAccount(input: {
   expiresAt: number;
   settings?: Record<string, unknown>;
 }): Promise<void> {
-  const settings = JSON.stringify(input.settings ?? {});
+  const settings = (input.settings ?? {}) as any;
   await sql`
     INSERT INTO mail_accounts
       (id, email, display_name, provider, settings, status, scopes,
        access_token_enc, refresh_token_enc, access_expires_at, updated_at)
     VALUES (
       ${input.id}, ${input.email}, ${input.displayName}, ${input.provider},
-      ${settings}::jsonb, ${input.status}, ${input.scopes},
+      ${sql.json(settings)}, ${input.status}, ${input.scopes},
       ${input.accessToken ? seal(input.accessToken) : null},
       ${seal(input.refreshToken)},
       ${new Date(input.expiresAt)},
@@ -87,7 +106,7 @@ export async function upsertAccount(input: {
       email = ${input.email},
       display_name = ${input.displayName},
       provider = ${input.provider},
-      settings = ${settings}::jsonb,
+      settings = ${sql.json(settings)},
       status = ${input.status},
       scopes = ${input.scopes},
       access_token_enc = ${input.accessToken ? seal(input.accessToken) : null},
@@ -277,11 +296,15 @@ export async function dueEvents(limit = 50): Promise<EventRow[]> {
       WHERE delivered_at IS NULL AND next_attempt_at <= now()
       ORDER BY created_at
       LIMIT ${limit}`;
+  // postgres-js returns a jsonb column as its JSON *text*, not as a parsed
+  // object. Stringifying it again would double-encode it, and the worker
+  // would receive `data` as a string — where `data.from` is undefined and the
+  // message is dropped without a word.
   return rows.map((r) => ({
     id: r.id,
     accountId: r.account_id,
     event: r.event,
-    payload: JSON.stringify(r.payload),
+    payload: typeof r.payload === "string" ? r.payload : JSON.stringify(r.payload),
     attempts: r.attempts,
   }));
 }

@@ -118,6 +118,7 @@ export async function gmailSync(
       internalDate: parsed.date?.getTime() ?? Date.now(),
       subject: parsed.subject ?? null,
       from: addressText(parsed.from),
+      fromName: addressName(parsed.from),
       to: addressText(parsed.to),
       plain: parsed.text ?? null,
       html: typeof parsed.html === "string" ? parsed.html : null,
@@ -189,8 +190,8 @@ export async function graphSync(
       receivedDateTime?: string;
       internetMessageId?: string;
       conversationId?: string;
-      from?: { emailAddress?: { address?: string } };
-      toRecipients?: { emailAddress?: { address?: string } }[];
+      from?: { emailAddress?: { address?: string; name?: string } };
+      toRecipients?: { emailAddress?: { address?: string; name?: string } }[];
       body?: { content?: string; contentType?: string };
     }[];
     "@odata.nextLink"?: string;
@@ -209,7 +210,8 @@ export async function graphSync(
         ? new Date(m.receivedDateTime).getTime()
         : Date.now(),
       subject: m.subject ?? null,
-      from: m.from?.emailAddress?.address ?? null,
+      from: m.from?.emailAddress?.address?.toLowerCase() ?? null,
+      fromName: m.from?.emailAddress?.name ?? null,
       to:
         m.toRecipients?.map((r) => r.emailAddress?.address).filter(Boolean).join(", ") ??
         null,
@@ -230,19 +232,43 @@ export async function graphSync(
 /* Shared                                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** An address field can be one address or a list of them. */
+interface ParsedAddress {
+  text?: string;
+  value?: { address?: string; name?: string }[];
+}
+
+/**
+ * The bare email address of a parsed address field.
+ *
+ * mailparser's `text` is the raw header value — `"Yousuf Ayub"
+ * <yousuf@ehsaantech.com>` — not an address. The worker compares this string
+ * against mailbox addresses and lead emails, so a display name in it breaks
+ * attribution and own-address detection.
+ */
 function addressText(
-  value: { text?: string } | { text?: string }[] | undefined,
+  value: ParsedAddress | ParsedAddress[] | undefined,
 ): string | null {
   if (!value) return null;
-  if (Array.isArray(value)) {
-    const joined = value
-      .map((v) => v.text)
-      .filter((t): t is string => typeof t === "string" && t.length > 0)
-      .join(", ");
-    return joined.length > 0 ? joined : null;
+  const list = Array.isArray(value) ? value : [value];
+  for (const entry of list) {
+    for (const v of entry.value ?? []) {
+      if (v.address) return v.address.toLowerCase();
+    }
   }
-  return typeof value.text === "string" ? value.text : null;
+  return null;
+}
+
+function addressName(
+  value: ParsedAddress | ParsedAddress[] | undefined,
+): string | null {
+  if (!value) return null;
+  const list = Array.isArray(value) ? value : [value];
+  for (const entry of list) {
+    for (const v of entry.value ?? []) {
+      if (v.address && v.name) return v.name;
+    }
+  }
+  return null;
 }
 
 /** A header can be a string, a list, or a structured value. */

@@ -535,7 +535,7 @@ async function syncOnce(): Promise<void> {
           threadId: m.threadId,
           date: new Date(m.internalDate).toISOString(),
           subject: m.subject,
-          from: { address: m.from },
+          from: { address: m.from, name: m.fromName ?? undefined },
           to: [{ address: m.to }],
           messageId: m.rfcMessageId,
           inReplyTo: m.inReplyTo,

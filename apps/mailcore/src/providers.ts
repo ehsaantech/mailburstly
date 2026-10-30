@@ -47,6 +47,7 @@ export interface InboundMessage {
   internalDate: number;
   subject: string | null;
   from: string | null;
+  fromName: string | null;
   to: string | null;
   plain: string | null;
   html: string | null;
@@ -175,6 +176,7 @@ function fromParsed(
     internalDate: parsed.date?.getTime() ?? Date.now(),
     subject: parsed.subject ?? null,
     from: addressText(parsed.from),
+    fromName: addressName(parsed.from),
     to: addressText(parsed.to),
     plain: parsed.text ?? null,
     html: typeof parsed.html === "string" ? parsed.html : null,
@@ -185,19 +187,45 @@ function fromParsed(
   };
 }
 
-/** An address field can be one address or a list of them. */
+/**
+ * The bare email address of a parsed address field.
+ *
+ * mailparser's `text` is the *raw header value* — `"Yousuf Ayub"
+ * <yousuf@ehsaantech.com>` — which is not an address. The worker compares
+ * that string against mailbox addresses and lead emails, so a display name in
+ * it breaks attribution and own-address detection. The address itself lives
+ * in `value[].address`.
+ */
 function addressText(
-  value: { text?: string } | { text?: string }[] | undefined,
+  value: ParsedAddress | ParsedAddress[] | undefined,
 ): string | null {
   if (!value) return null;
-  if (Array.isArray(value)) {
-    const joined = value
-      .map((v) => v.text)
-      .filter((t): t is string => typeof t === "string" && t.length > 0)
-      .join(", ");
-    return joined.length > 0 ? joined : null;
+  const list = Array.isArray(value) ? value : [value];
+  for (const entry of list) {
+    for (const v of entry.value ?? []) {
+      if (v.address) return v.address.toLowerCase();
+    }
   }
-  return typeof value.text === "string" ? value.text : null;
+  return null;
+}
+
+/** The display name of a parsed address field, when it has one. */
+function addressName(
+  value: ParsedAddress | ParsedAddress[] | undefined,
+): string | null {
+  if (!value) return null;
+  const list = Array.isArray(value) ? value : [value];
+  for (const entry of list) {
+    for (const v of entry.value ?? []) {
+      if (v.address && v.name) return v.name;
+    }
+  }
+  return null;
+}
+
+interface ParsedAddress {
+  text?: string;
+  value?: { address?: string; name?: string }[];
 }
 
 /* -------------------------------------------------------------------------- */
