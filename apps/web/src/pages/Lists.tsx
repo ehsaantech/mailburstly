@@ -169,7 +169,9 @@ export function ListsPage() {
                       variant="ghost"
                       size="icon"
                       aria-label="Delete list"
-                      onClick={() => remove.mutate(list.id)}
+                      onClick={() => {
+                        if (window.confirm(`Delete list \"${list.name}\"?`)) remove.mutate(list.id);
+                      }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>

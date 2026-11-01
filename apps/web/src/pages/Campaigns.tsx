@@ -342,7 +342,11 @@ export function CampaignsPage() {
                           size="icon"
                           aria-label="Delete"
                           className="text-danger hover:text-danger"
-                          onClick={() => setConfirmId(c.id)}
+                          onClick={() => {
+                            if (window.confirm(`Archive campaign \"${c.name}\"?`)) {
+                              archiveMutation.mutate(c.id);
+                            }
+                          }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
