@@ -40,6 +40,9 @@ export const conflict = (message: string) =>
 export const notImplemented = (resource: string) =>
   new AppError(501, "not_implemented", `${resource} is not built yet`);
 
+export const badGateway = (message = "Bad gateway", details?: unknown) =>
+  new AppError(502, "bad_gateway", message, details);
+
 export const internal = () =>
   new AppError(500, "internal_error", "Internal server error");
 

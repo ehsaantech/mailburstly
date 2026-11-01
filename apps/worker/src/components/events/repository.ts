@@ -4,15 +4,24 @@ import {
   blocklist,
   bounces,
   campaignLeads,
+  campaignLists,
+  campaigns,
   conversations,
   leadLabels,
+  leadListMembers,
+  leadLists,
   leadStatusEvents,
   leads,
+  listWatchers,
   mailboxes,
   messages,
+  notifications,
   opportunities,
   processedWebhookEvents,
   sentMessages,
+  users,
+  workspaces,
+  workspaceMembers,
   type Database,
 } from "@mailrung/db";
 
@@ -422,6 +431,115 @@ export function createEventsRepository({ db }: { db: Database }) {
         .where(eq(opportunities.conversationId, conversationId))
         .limit(1);
       return rows[0] ?? null;
+    },
+
+    async listsForLead(workspaceId: string, leadId: string): Promise<string[]> {
+      const rows = await db
+        .select({ id: leadLists.id })
+        .from(leadListMembers)
+        .innerJoin(leadLists, eq(leadLists.id, leadListMembers.listId))
+        .where(and(eq(leadListMembers.leadId, leadId), eq(leadLists.workspaceId, workspaceId)));
+      return rows.map((r) => r.id);
+    },
+
+    async listsForCampaign(campaignId: string): Promise<string[]> {
+      const rows = await db
+        .select({ listId: campaignLists.listId })
+        .from(campaignLists)
+        .where(eq(campaignLists.campaignId, campaignId));
+      return rows.map((r) => r.listId);
+    },
+
+    async watchersForLists(listIds: string[]): Promise<Array<{ userId: string; email?: string; name?: string }>> {
+      if (listIds.length === 0) return [];
+      const rows = await db
+        .select({ userId: listWatchers.userId })
+        .from(listWatchers)
+        .where(inArray(listWatchers.listId, listIds));
+      const ids = [...new Set(rows.map((r) => r.userId))];
+      return ids.map((userId) => ({ userId }));
+    },
+
+    async workspaceMemberUserIds(workspaceId: string): Promise<string[]> {
+      const rows = await db
+        .select({ userId: workspaceMembers.userId })
+        .from(workspaceMembers)
+        .where(eq(workspaceMembers.workspaceId, workspaceId));
+      return rows.map((r) => r.userId);
+    },
+
+    async workspaceAdmins(workspaceId: string): Promise<string[]> {
+      const rows = await db
+        .select({ userId: workspaceMembers.userId })
+        .from(workspaceMembers)
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, workspaceId),
+            eq(workspaceMembers.role, "admin"),
+          ),
+        );
+      return rows.map((r) => r.userId);
+    },
+
+    async campaignById(campaignId: string) {
+      const rows = await db.select().from(campaigns).where(eq(campaigns.id, campaignId)).limit(1);
+      return rows[0] ?? null;
+    },
+
+    async workspaceSettings(workspaceId: string) {
+      const rows = await db.select({ settings: workspaces.settings }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+      const settings = rows[0]?.settings as any;
+      return settings ?? null;
+    },
+
+    async messagesForConversation(conversationId: string) {
+      return db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(messages.receivedAt);
+    },
+
+    async findConversationById(conversationId: string) {
+      const rows = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, conversationId))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+
+    async userById(userId: string) {
+      const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      return rows[0] ?? null;
+    },
+
+    async insertNotifications(rows: Array<Record<string, unknown>>) {
+      if (rows.length === 0) return [];
+      return db.insert(notifications).values(rows as any).onConflictDoNothing({ target: notifications.dedupeKey }).returning();
+    },
+
+    async setSuggestedReply(conversationId: string, input: {
+      forMessageId: string;
+      text: string;
+      html: string;
+      model: string;
+      state: "none" | "pending" | "ready" | "failed" | "sent";
+      error?: string | null;
+    }) {
+      await db
+        .update(conversations)
+        .set({
+          suggestedReplyHtml: input.html,
+          suggestedReplyText: input.text,
+          suggestedAt: new Date(),
+          suggestedModel: input.model,
+          suggestedState: input.state,
+          suggestedError: input.error ?? null,
+          suggestedForMessageId: input.forMessageId,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, conversationId));
     },
   };
 }

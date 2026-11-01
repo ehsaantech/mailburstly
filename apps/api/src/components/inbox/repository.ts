@@ -421,10 +421,11 @@ export function createInboxRepository({ db }: { db: Database }) {
     /* ------------------------------ settings --------------------------- */
 
     /** The workspace's own settings, for the reply-classification model. */
-    async workspaceSettings(): Promise<{ llm?: { model?: string } } | null> {
+    async workspaceSettings(workspaceId: string): Promise<{ llm?: { model?: string; writerModel?: string; writerMaxTokens?: number; writerTimeoutMs?: number } } | null> {
       const rows = await db
         .select({ settings: workspaces.settings })
         .from(workspaces)
+        .where(eq(workspaces.id, workspaceId))
         .limit(1);
       const settings = rows[0]?.settings as
         | { llm?: { model?: string } }

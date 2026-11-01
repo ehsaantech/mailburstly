@@ -4,8 +4,7 @@ import { ok } from "@/core/response";
 import { parseJson } from "@/core/validate";
 import type { AppBindings, AppMiddleware } from "@/types";
 import type { SettingsService } from "./service";
-import { updateSettingsSchema } from "./validator";
-
+import { updateSettingsSchema, testWriterSchema } from "./validator";
 export function createSettingsRoutes(
   settings: SettingsService,
   requireAuth: AppMiddleware,
@@ -20,6 +19,11 @@ export function createSettingsRoutes(
 
   routes.get("/llm-models", async (c) => {
     return ok(c, { items: await settings.listModels() });
+  });
+
+  routes.post("/llm/test", async (c) => {
+    const input = await parseJson(c, testWriterSchema);
+    return ok(c, await settings.testWriter(input.model));
   });
 
   routes.patch("/", async (c) => {

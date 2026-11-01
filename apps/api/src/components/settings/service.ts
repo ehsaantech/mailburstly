@@ -7,11 +7,14 @@ import {
 import type { DbHandle } from "@/db";
 import { createSettingsRepository } from "./repository";
 import type { UpdateSettingsInput } from "./validator";
+import { createChatClient } from "@mailrung/shared";
 
 export interface SettingsServiceDeps {
   db: DbHandle;
   /** The base url of the model api, used to list the available models. */
   llmBaseUrl: string;
+  /** The api key for the model provider, read from the environment. */
+  llmApiKey?: string;
 }
 
 /** A model the operator can pick, as the api reports it. */
@@ -94,6 +97,43 @@ export function createSettingsService(deps: SettingsServiceDeps) {
      * provider is unreachable the list is empty rather than an error: the
      * dropdown still shows the model currently in use.
      */
+    async testWriter(model: string): Promise<{
+      ok: boolean;
+      model: string;
+      draft?: string;
+      latencyMs?: number;
+      error?: string;
+    }> {
+      if (isDecisionModel(model)) {
+        return { ok: false, model, error: "This is a decision model and cannot draft text." };
+      }
+      const client = createChatClient({
+        baseUrl: deps.llmBaseUrl,
+        apiKey: deps.llmApiKey ?? "",
+        defaultModel: model,
+        maxTokens: 64,
+        timeoutMs: 20_000,
+      });
+      const result = await client.chat({
+        model,
+        messages: [
+          { role: "user", content: "Reply with one short sentence confirming that the drafting model is online." },
+        ],
+        temperature: 0,
+        maxTokens: 64,
+        retryOnEmpty: true,
+      });
+      if (!result.ok) {
+        return { ok: false, model, latencyMs: result.latencyMs, error: result.error };
+      }
+      return {
+        ok: true,
+        model: result.model,
+        draft: result.content,
+        latencyMs: result.latencyMs,
+      };
+    },
+
     async listModels(): Promise<LlmModelOption[]> {
       try {
         const res = await fetch(

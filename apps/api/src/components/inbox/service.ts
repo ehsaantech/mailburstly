@@ -1,8 +1,9 @@
-import { badRequest, notFound } from "@/core/errors";
+import { badRequest, badGateway, notFound } from "@/core/errors";
 import type { DbHandle } from "@/db";
 import { submitMessage } from "@/lib/mailcore";
 import { raiseAlert } from "@/lib/alerts";
 import { chat, stripFence, SUGGEST_SYSTEM_PROMPT } from "@/lib/llm";
+import { isDecisionModel } from "@/components/settings/service";
 import { createInboxRepository } from "./repository";
 import type {
   AttachLeadInput,
@@ -316,26 +317,44 @@ export function createInboxService(deps: InboxServiceDeps) {
      * not a send: the operator reads it, changes it, and sends it.
      */
     async suggest(id: string, input: SuggestInput) {
+      const workspaceId = await ws();
       const row = await requireConversation(id);
       const thread = await repository.messagesForConversation(id);
 
       if (thread.length === 0) {
         throw badRequest("There is nothing to reply to yet");
       }
+      if (thread.every((m) => !(m.textBody ?? m.snippet ?? "").trim())) {
+        throw badRequest("There is nothing to reply to yet: the thread has no readable text");
+      }
 
       const lead = row.leadId
-        ? await repository.leadById(await ws(), row.leadId)
+        ? await repository.leadById(workspaceId, row.leadId)
         : null;
 
       const campaign = row.campaignId
         ? await repository.campaignById(
-            await ws(),
+            workspaceId,
             row.campaignId,
           )
         : null;
 
-      const settings = await repository.workspaceSettings();
-      const model = settings?.llm?.model ?? undefined;
+      const settings = await repository.workspaceSettings(workspaceId);
+      const writerModel =
+        settings?.llm?.writerModel ??
+        (settings?.llm?.model && !isDecisionModel(settings.llm.model) ? settings.llm.model : null) ??
+        "gpt-oss:20b";
+      if (!writerModel) {
+        throw badRequest("No drafting model is configured. Configure it in Settings -> AI.");
+      }
+      if (isDecisionModel(writerModel)) {
+        throw badRequest(
+          `"${writerModel}" is a decision model and cannot draft text. Choose a chat model in Settings -> AI.`,
+        );
+      }
+
+      const maxTokens = settings?.llm?.writerMaxTokens ?? 1200;
+      const timeoutMs = settings?.llm?.writerTimeoutMs ?? 45_000;
 
       const transcript = thread
         .map((m) => {
@@ -364,7 +383,7 @@ export function createInboxService(deps: InboxServiceDeps) {
         .join("\n");
 
       const result = await chat({
-        model,
+        model: writerModel,
         messages: [
           { role: "system", content: SUGGEST_SYSTEM_PROMPT },
           {
@@ -372,19 +391,30 @@ export function createInboxService(deps: InboxServiceDeps) {
             content: `${context}\n\nWrite a reply in a ${input.tone} tone.`,
           },
         ],
+        maxTokens,
+        timeoutMs,
       });
 
       if (!result.ok) {
-        throw badRequest(
+        throw badGateway(
           `No suggestion could be generated: ${
             result.error ?? "the model is unavailable"
           }`,
         );
       }
+      if (!result.content || !result.content.trim()) {
+        throw badGateway("The model returned no draft text. Try again or pick a different model.");
+      }
+
+      const draft = stripFence(result.content);
+      if (!draft) {
+        throw badGateway("The model returned no draft text. Try again or pick a different model.");
+      }
 
       return {
-        draft: stripFence(result.content),
-        model: model ?? null,
+        draft,
+        model: result.model,
+        latencyMs: result.latencyMs,
       };
     },
 

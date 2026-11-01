@@ -188,6 +188,19 @@ export interface LlmSettings {
    * rule-based classifier answers every reply.
    */
   enabled: boolean;
+  /**
+   * The chat model that drafts replies (inbox suggestions, watcher drafts,
+   * and any future text generation). Decision models cannot be used here.
+   */
+  writerModel: string;
+  /**
+   * Upper bound on output tokens for a drafted reply. Reasoning models
+   * can use part of this budget for chain-of-thought, so it is set
+   * conservatively high.
+   */
+  writerMaxTokens: number;
+  /** Abort a draft after this many milliseconds. */
+  writerTimeoutMs: number;
 }
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
@@ -199,6 +212,9 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
     model: "clef:27b",
     minConfidence: 0.7,
     enabled: true,
+    writerModel: "gpt-oss:20b",
+    writerMaxTokens: 1200,
+    writerTimeoutMs: 45000,
   },
 };
 

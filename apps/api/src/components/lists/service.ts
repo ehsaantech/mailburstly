@@ -173,6 +173,16 @@ export function createListService(deps: ListServiceDeps) {
       if (!removed) throw notFound("List member");
     },
 
+    async listWatchers(id: string) {
+      await requireList(id);
+      return repository.listWatchers(id);
+    },
+
+    async replaceWatchers(id: string, userIds: string[]) {
+      await requireList(id);
+      return repository.replaceWatchers(id, userIds);
+    },
+
     /* ------------------------ campaign attachment ----------------------- */
 
     /**

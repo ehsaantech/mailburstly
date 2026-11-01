@@ -25,5 +25,9 @@ export function createWorkspaceRoutes(
     return ok(c, { workspace, user: c.get("user") });
   });
 
+  routes.get("/members", async (c) => {
+    return ok(c, { items: await repository.members() });
+  });
+
   return routes;
 }

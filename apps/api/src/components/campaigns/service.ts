@@ -79,7 +79,10 @@ export function toSummary(
     mailboxIds: [],
     stepCount,
     pausedReason: row.pausedReason,
-    tags: [],
+    tags: row.tags ?? [],
+    emailGapMinutes: row.emailGapMinutes,
+    randomWaitMax: row.randomWaitMax,
+    archivedAt: row.archivedAt?.toISOString() ?? null,
   };
 }
 
@@ -267,6 +270,7 @@ export function createCampaignService(deps: CampaignServiceDeps) {
 
       const dbPatch: Record<string, unknown> = {};
       if (patch.name !== undefined) dbPatch.name = patch.name;
+      if (patch.tags !== undefined) dbPatch.tags = patch.tags;
       if (patch.dailyLimit !== undefined) dbPatch.dailyLimit = patch.dailyLimit;
       if (patch.dailyMaxLeads !== undefined) dbPatch.dailyMaxLeads = patch.dailyMaxLeads;
       if (patch.stopOnReply !== undefined) dbPatch.stopOnReply = patch.stopOnReply;
@@ -325,6 +329,67 @@ export function createCampaignService(deps: CampaignServiceDeps) {
       });
       if (!row) throw notFound("Campaign");
       return toSummary(row, 0, 0);
+    },
+
+    async archive(id: string) {
+      const workspaceId = await ws();
+      await requireCampaign(id);
+      const ok = await repository.archive(workspaceId, id);
+      if (!ok) throw notFound("Campaign");
+      return toSummary(await repository.byId(workspaceId, id) as any, 0, 0);
+    },
+
+    async restore(id: string) {
+      const workspaceId = await ws();
+      await requireCampaign(id);
+      const ok = await repository.restore(workspaceId, id);
+      if (!ok) throw notFound("Campaign");
+      return toSummary(await repository.byId(workspaceId, id) as any, 0, 0);
+    },
+
+    async duplicate(id: string) {
+      const workspaceId = await ws();
+      await requireCampaign(id);
+      const original = await repository.byId(workspaceId, id);
+      const copy = await repository.duplicate(workspaceId, id, `Copy of ${original?.name ?? ""}`.trim());
+      if (!copy) throw notFound("Campaign");
+      return toSummary(copy, 0, 0);
+    },
+
+    async bulk(action: string, ids: string[]) {
+      const result: { action: string; succeeded: string[]; failed: Array<{ id: string; reason: string }> } = {
+        action,
+        succeeded: [],
+        failed: [],
+      };
+      for (const id of ids) {
+        try {
+          switch (action) {
+            case "pause":
+              await this.pause(id);
+              break;
+            case "resume":
+              await this.resume(id);
+              break;
+            case "archive":
+              await this.archive(id);
+              break;
+            case "restore":
+              await this.restore(id);
+              break;
+            case "delete":
+              await this.archive(id);
+              break;
+            case "duplicate":
+              await this.duplicate(id);
+              break;
+          }
+          result.succeeded.push(id);
+        } catch (error) {
+          result.failed.push({ id, reason: error instanceof Error ? error.message : "failed" });
+        }
+      }
+      return result;
     },
 
     /* ------------------------------- steps ------------------------------- */

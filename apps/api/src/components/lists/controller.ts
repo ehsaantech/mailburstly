@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 
 import { created, noContent, ok, paginated } from "@/core/response";
 import { parseJson, parseParams, parseQuery } from "@/core/validate";
@@ -51,6 +52,16 @@ export function createListRoutes(lists: ListService, requireAuth: AppMiddleware)
     return created(c, { list: await lists.duplicate(id) });
   });
 
+  routes.get("/:id/watchers", async (c) => {
+    const { id } = parseParams(c, listParamsSchema);
+    return ok(c, { items: await lists.listWatchers(id) });
+  });
+
+  routes.put("/:id/watchers", async (c) => {
+    const { id } = parseParams(c, listParamsSchema);
+    const input = await parseJson(c, z.object({ userIds: z.array(z.string().uuid()) }));
+    return ok(c, { items: await lists.replaceWatchers(id, input.userIds) });
+  });
   /* ------------------------------ members ------------------------------ */
 
   routes.get("/:id/members", async (c) => {

@@ -35,6 +35,7 @@ export type CreateCampaignInput = z.infer<typeof createCampaignSchema>;
 export const updateCampaignSchema = z
   .object({
     name: z.string().trim().min(1).max(200).optional(),
+    tags: z.array(z.string().trim().min(1).max(40)).max(10).optional(),
     dailyLimit: z.number().int().min(1).max(10000).optional().nullable(),
     dailyMaxLeads: z.number().int().min(0).max(10000).optional().nullable(),
     emailGapMinutes: z.number().int().min(1).max(60).optional(),

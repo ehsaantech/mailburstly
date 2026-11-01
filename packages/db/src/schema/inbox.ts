@@ -18,7 +18,8 @@ import {
 } from "./enums";
 import { campaigns } from "./campaigns";
 import { leadLabels, leads } from "./leads";
-import { mailboxes, workspaces } from "./core";
+import { mailboxes, users, workspaces } from "./core";
+import { leadLists } from "./lists";
 
 /**
  * A conversation threads every message exchanged with one contact on one
@@ -40,6 +41,13 @@ export const conversations = pgTable(
     /** Contact address. Denormalised so an unmatched lead still has a thread. */
     contactEmail: text("contact_email").notNull(),
     subject: text("subject"),
+    suggestedReplyHtml: text("suggested_reply_html"),
+    suggestedReplyText: text("suggested_reply_text"),
+    suggestedAt: timestamp("suggested_at", { withTimezone: true }),
+    suggestedModel: text("suggested_model"),
+    suggestedState: text("suggested_state").notNull().default("none"),
+    suggestedError: text("suggested_error"),
+    suggestedForMessageId: text("suggested_for_message_id"),
     status: conversationStatusEnum("status").notNull().default("open"),
     /** True when a reply was detected and the campaign should stop. */
     hasReply: integer("has_reply").notNull().default(0),
@@ -212,5 +220,45 @@ export const opportunities = pgTable(
   (t) => [
     index("opportunities_lead_idx").on(t.leadId),
     index("opportunities_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * An in-app notification for a user.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    conversationId: uuid("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    campaignId: uuid("campaign_id").references(() => campaigns.id, {
+      onDelete: "set null",
+    }),
+    listId: uuid("list_id").references(() => leadLists.id, {
+      onDelete: "set null",
+    }),
+    messageId: text("message_id"),
+    title: text("title").notNull(),
+    body: text("body"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    dedupeKey: text("dedupe_key").notNull(),
+  },
+  (t) => [
+    uniqueIndex("notifications_dedupe_idx").on(t.dedupeKey),
+    index("notifications_user_created_idx").on(t.userId, t.createdAt),
+    index("notifications_user_unread_idx").on(t.userId, t.readAt),
   ],
 );
