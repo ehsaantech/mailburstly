@@ -28,9 +28,14 @@ ENV GOOGLE_SITE_VERIFICATION=$GOOGLE_SITE_VERIFICATION
 
 # Workspace manifests first, so dependency layers cache independently of source.
 COPY package.json bun.lock* ./
+COPY packages/shared/package.json ./packages/shared/package.json
 COPY apps/web/package.json ./apps/web/package.json
 RUN bun install --frozen-lockfile || bun install
 
+# The web app imports @mailrung/shared (the import engine both the browser
+# and the api share), so the package has to be in the image, not just its
+# manifest.
+COPY packages/shared ./packages/shared
 COPY apps/web ./apps/web
 WORKDIR /app/apps/web
 RUN bun run build

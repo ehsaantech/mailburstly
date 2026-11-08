@@ -104,6 +104,8 @@ Connect mailboxes  →  Import leads  →  Build sequence  →  Configure rules 
 
 **Edge cases.** 60MB CSV → chunked parse, no memory blowup. Header with 60 columns → works (we cap *suggested* variables at 50 but accept more). Sheet URL not public → explicit error, no silent empty import. Unicode/quoted fields/embedded newlines → correct RFC-4180 parsing. Re-importing the same file → all rows deduped, user told "0 new, 500 duplicates".
 
+**Rejection policy (enforced).** A row with a missing, malformed or over-long (>255 char) email is **rejected on its own** — it comes back with its row number and the reason, and the rest of the batch still imports. A row whose email already exists (in the workspace or earlier in the same batch) is **skipped**, not rejected. One broken address never fails 9,999 good ones.
+
 **Acceptance.** Import a 5,000-row CSV with 3 deliberately bad emails; user sees exactly which rows failed and why; a second identical import adds 0 leads.
 
 ---

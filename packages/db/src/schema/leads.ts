@@ -42,6 +42,10 @@ export const leads = pgTable(
     company: text("company"),
     title: text("title"),
     phone: text("phone"),
+    /** The contact's LinkedIn profile URL. */
+    linkedinUrl: text("linkedin_url"),
+    /** The contact's photo or avatar URL. */
+    photoUrl: text("photo_url"),
     statusId: integer("status_id").references(() => leadLabels.id, {
       onDelete: "set null",
     }),
