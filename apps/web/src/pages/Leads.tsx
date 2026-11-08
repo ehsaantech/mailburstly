@@ -16,7 +16,7 @@ import { Page } from "@/components/layout/AppShell";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { Input, Select, Field } from "@/components/ui/Input";
+import { Input, Select } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/Feedback";
 import {
@@ -409,12 +409,13 @@ export function LeadsPage() {
         ) : null}
       </Card>
 
-      <AddLeadModal
+      {/* Adding one lead is adding a row: same grid, same validation. */}
+      <ImportLeadsModal
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        onCreated={() => {
-          queryClient.invalidateQueries({ queryKey: ["leads"] });
-        }}
+        initialMode="table"
+        initialRows={1}
+        onImported={() => queryClient.invalidateQueries({ queryKey: ["leads"] })}
       />
       <ImportLeadsModal
         open={importOpen}
@@ -513,132 +514,6 @@ function AddToListModal({
             ))}
           </Select>
         )}
-      </div>
-    </Modal>
-  );
-}
-
-function AddLeadModal({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [email, setEmail] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [company, setCompany] = useState("");
-  const [title, setTitle] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      api.post("/leads", {
-        email: email.trim(),
-        firstName: firstName.trim() || undefined,
-        lastName: lastName.trim() || undefined,
-        company: company.trim() || undefined,
-        title: title.trim() || undefined,
-      }),
-    onSuccess: () => {
-      setError(null);
-      setEmail("");
-      setFirstName("");
-      setLastName("");
-      setCompany("");
-      setTitle("");
-      onCreated();
-      onClose();
-    },
-    onError: (err) => {
-      setError(err instanceof Error ? err.message : "Failed to add lead");
-    },
-  });
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Add lead"
-      description="A lead needs an email address. Everything else is optional."
-      footer={
-        <>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            loading={mutation.isPending}
-            onClick={() => {
-              if (!email.trim()) {
-                setError("Email is required");
-                return;
-              }
-              mutation.mutate();
-            }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add lead
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Email" htmlFor="lead-email">
-          <Input
-            id="lead-email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="name@company.com"
-            autoFocus
-          />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="First name" htmlFor="lead-first">
-            <Input
-              id="lead-first"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="Zahid"
-            />
-          </Field>
-          <Field label="Last name" htmlFor="lead-last">
-            <Input
-              id="lead-last"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="Khan"
-            />
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Company" htmlFor="lead-company">
-            <Input
-              id="lead-company"
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-              placeholder="Acme Corp"
-            />
-          </Field>
-          <Field label="Job title" htmlFor="lead-title">
-            <Input
-              id="lead-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Head of Growth"
-            />
-          </Field>
-        </div>
-        {error ? (
-          <div className="rounded-lg border border-[var(--danger)]/25 bg-danger-soft px-3 py-2 text-xs text-fg-muted">
-            {error}
-          </div>
-        ) : null}
       </div>
     </Modal>
   );

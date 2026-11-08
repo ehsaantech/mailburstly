@@ -12,6 +12,7 @@
     "smoke": "bun run scripts/smoke.ts"
   },
   "dependencies": {
+    "@mailrung/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
@@ -21,7 +22,9 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4",
     "@tailwindcss/vite": "^4.0.0",
+    "@types/bun": "^1.4.4",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

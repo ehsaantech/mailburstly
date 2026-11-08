@@ -91,6 +91,8 @@ export function createLeadRepository({ db }: { db: Database }) {
       company?: string | null;
       title?: string | null;
       phone?: string | null;
+      linkedinUrl?: string | null;
+      photoUrl?: string | null;
       statusId?: number | null;
       customVariables?: Record<string, string>;
     }) {
@@ -104,6 +106,8 @@ export function createLeadRepository({ db }: { db: Database }) {
           company: input.company ?? null,
           title: input.title ?? null,
           phone: input.phone ?? null,
+          linkedinUrl: input.linkedinUrl ?? null,
+          photoUrl: input.photoUrl ?? null,
           statusId: input.statusId ?? null,
           customVariables: input.customVariables ?? {},
         })

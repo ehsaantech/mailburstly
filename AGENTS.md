@@ -27,6 +27,8 @@
 - `bun run typecheck` — types across every app and package.
 - `bun run test:ts` — the bun test suite (`bun test apps/worker/src
   apps/api/src packages/shared/src`).
+- `bun run test:web` — the web component tests (`bun test --preload
+  ./apps/web/test/setup.ts apps/web/src`; happy-dom provides the DOM).
 - `bun run test:go` — the dispatcher's Go tests.
 - `docker compose up -d --build api worker` — the api and worker run in
   containers; a source change is not live until they are rebuilt.

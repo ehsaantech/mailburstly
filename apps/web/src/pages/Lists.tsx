@@ -7,6 +7,7 @@ import {
   Plus,
   Search,
   Trash2,
+  Upload,
 } from "lucide-react";
 
 import { Page } from "@/components/layout/AppShell";
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Input, Field, Select } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { ImportLeadsModal } from "@/components/ImportLeadsModal";
 import { EmptyState } from "@/components/ui/Feedback";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -273,6 +275,7 @@ function ListDetailModal({
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const detail = useQuery({
     queryKey: ["lists", listId],
@@ -454,6 +457,15 @@ function ListDetailModal({
             <Button
               variant="secondary"
               size="sm"
+              onClick={() => setImporting(true)}
+              title="Create new leads and add them to this list"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Create new
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setAdding(true)}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -523,6 +535,17 @@ function ListDetailModal({
           pending={addMembers.isPending}
         />
       ) : null}
+
+      {/* Create new leads and add them to this list in one step. */}
+      <ImportLeadsModal
+        open={importing}
+        onClose={() => setImporting(false)}
+        listId={listId}
+        onImported={() => {
+          queryClient.invalidateQueries({ queryKey: ["lists"] });
+          queryClient.invalidateQueries({ queryKey: ["lists", listId, "members"] });
+        }}
+      />
     </Modal>
   );
 }
